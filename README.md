@@ -1,6 +1,4 @@
-# OCCE - Optimized Console Code Editor
-
-> A professional-grade terminal text editor proving that modern IDE features don't require bloat.
+# OCCE - Editor
 
 **OCCE** is a lightweight, fast, and feature-rich code editor built with C and Lua. It combines the simplicity of traditional terminal editors with modern conveniences like syntax highlighting, git integration, and mouse support - all in a **244KB binary**.
 
@@ -229,16 +227,6 @@ OCCE uses a clean separation between core functionality (C) and features (Lua):
 - **Syntax** - Lua-based highlighting, cached rendering
 - **Lua Bridge** - C ↔ Lua API, plugin system
 
-## Performance
-
-| Metric | Target | Actual |
-|--------|--------|--------|
-| Binary Size | < 500KB | 244KB ✓ |
-| Startup Time | < 50ms | ~20ms ✓ |
-| Memory Usage | < 10MB | ~3MB ✓ |
-| Input Latency | < 16ms | ~5ms ✓ |
-
-**Achievement**: All professional IDE features fit in just 244KB!
 
 ## 📚 Documentation
 
@@ -246,65 +234,6 @@ OCCE uses a clean separation between core functionality (C) and features (Lua):
 - **[plugins/README.md](plugins/README.md)** - Plugin API and development guide
 - **[LICENSE](LICENSE)** - MIT License
 
-## 🎯 Project Goals
-
-OCCE demonstrates that professional development tools don't need to be bloated:
-- **Performance First** - Written in C11 for maximum speed and minimal size
-- **Clean Architecture** - Clear separation between core (C) and features (Lua)
-- **Zero Bloat** - Every feature must justify its size impact
-- **Developer Friendly** - Simple, readable code that's easy to understand and extend
-
-## 🗺️ Roadmap
-
-### Current Status: v0.6.0
-All core features complete! OCCE is fully usable for daily coding work.
-
-### Planned Features
-- **LSP support** - Code completion, diagnostics, go-to-definition
-- **Search highlighting** - Visual feedback for search matches
-- **Incremental search** - Search as you type
-- **Plugin manager** - Easy plugin installation and management
-- **Theme system** - Customizable color schemes
-- **More languages** - Expand syntax highlighting support
-
-See [CHANGELOG.md](CHANGELOG.md) for complete project history.
-
-## 🤝 Contributing
-
-Contributions are welcome! OCCE is designed to be hackable and easy to understand.
-
-### Ways to Contribute
-- 🐛 **Report bugs** - Open an issue with reproduction steps
-- 💡 **Suggest features** - Share ideas for improvements
-- 🔌 **Create plugins** - Extend OCCE with Lua plugins
-- 📝 **Improve docs** - Help make documentation clearer
-- 🎨 **Add syntax definitions** - Support more languages
-- 💻 **Submit code** - Fix bugs or implement features
-
-### Getting Started
-1. Fork the repository
-2. Check [plugins/README.md](plugins/README.md) for plugin development
-3. Review the source code in `src/` and `include/`
-4. Browse open issues for ideas
-5. Submit a pull request!
-
-### Code Style
-- Follow existing C11 style conventions
-- Keep functions small and focused
-- Comment complex logic clearly
-- Test your changes thoroughly
-- Ensure no compiler warnings
-
-### Project Structure
-```
-occe/
-├── src/           # C source files
-├── include/       # C header files
-├── plugins/       # Lua plugins and syntax definitions
-├── init.lua       # Default configuration
-├── Makefile       # Build system
-└── build_lua.sh   # Bundled Lua builder
-```
 
 ## 📄 License
 
@@ -315,11 +244,7 @@ OCCE is free and open source software. Feel free to use, modify, and distribute 
 ---
 
 <div align="center">
-
 **Built with ❤️ using C and Lua**
 
 *Proving that great software doesn't need to be bloated*
-
-[⭐ Star this repo](../../stargazers) • [🐛 Report Bug](../../issues) • [💡 Request Feature](../../issues)
-
 </div>
