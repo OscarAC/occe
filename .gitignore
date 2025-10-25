@@ -1,0 +1,50 @@
+# Build artifacts
+build/
+occe
+occe.exe
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Lua dependencies
+lua-*/
+*.tar.gz
+*.zip
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.core
+vgcore.*
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.sw?
+*.bak
+.project
+.cproject
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.db
+
+# Test and temporary files
+test_*.txt
+test_*.c
+test_*.lua
+demo_*.txt
+*.tmp
+*.log
+
+# Claude Code workspace (keep in repo)
+!.claude/
