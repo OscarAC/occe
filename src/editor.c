@@ -12,6 +12,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+/* Get the config directory path (~/.config/occe) */
+static char *get_config_dir(void) {
+    const char *home = getenv("HOME");
+    if (!home) {
+        struct passwd *pw = getpwuid(getuid());
+        if (pw) home = pw->pw_dir;
+    }
+
+    if (!home) return NULL;
+
+    size_t len = strlen(home) + strlen("/.config/occe") + 1;
+    char *config_dir = malloc(len);
+    if (!config_dir) return NULL;
+
+    snprintf(config_dir, len, "%s/.config/occe", home);
+    return config_dir;
+}
 
 Editor *editor_create(void) {
     Editor *ed = malloc(sizeof(Editor));
@@ -56,6 +77,9 @@ Editor *editor_create(void) {
     /* Initialize git */
     ed->git_repo = NULL;
 
+    /* Get config directory */
+    ed->config_dir = get_config_dir();
+
     /* Initialize colors and syntax */
     colors_init();
     syntax_init();
@@ -64,31 +88,20 @@ Editor *editor_create(void) {
     if (lua_bridge_init(ed) != 0) {
         keymap_destroy(ed->keymap);
         terminal_destroy(ed->term);
+        if (ed->config_dir) free(ed->config_dir);
         free(ed);
         return NULL;
     }
 
-    /* Load syntax highlighting plugins */
-    lua_bridge_load_plugin(ed, "plugins/syntax/lua.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/c.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/python.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/javascript.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/rust.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/go.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/java.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/ruby.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/typescript.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/shell.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/html.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/css.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/json.lua");
-    lua_bridge_load_plugin(ed, "plugins/syntax/markdown.lua");
-
-    /* Load core plugins if they exist */
-    lua_bridge_load_plugin(ed, "plugins/core.lua");
-
-    /* Load user configuration if it exists */
-    lua_bridge_load_plugin(ed, "init.lua");
+    /* Load user configuration - try local init.lua first (dev mode), then config dir */
+    if (lua_bridge_load_plugin(ed, "./init.lua") != 0) {
+        /* Local init.lua not found, try config directory */
+        if (ed->config_dir) {
+            char init_path[512];
+            snprintf(init_path, sizeof(init_path), "%s/init.lua", ed->config_dir);
+            lua_bridge_load_plugin(ed, init_path);
+        }
+    }
 
     return ed;
 }
@@ -118,6 +131,9 @@ void editor_destroy(Editor *ed) {
 
     /* Clean up git */
     if (ed->git_repo) git_repo_close(ed->git_repo);
+
+    /* Clean up config directory path */
+    if (ed->config_dir) free(ed->config_dir);
 
     /* Clean up terminal */
     terminal_destroy(ed->term);

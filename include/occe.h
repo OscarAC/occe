@@ -56,6 +56,9 @@ struct Editor {
 
     /* Git integration */
     GitRepo *git_repo;
+
+    /* Config directory path */
+    char *config_dir;
 };
 
 /* Initialize and run editor */

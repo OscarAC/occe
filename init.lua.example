@@ -1,0 +1,79 @@
+-- OCCE Configuration File
+-- Location: ~/.config/occe/init.lua
+--
+-- This file is loaded on startup and should specify which plugins to load.
+-- Plugins are loaded from ~/.config/occe/plugins/
+
+-- ============================================================================
+-- Syntax Highlighting Plugins
+-- ============================================================================
+-- Load language-specific syntax highlighting
+-- Comment out any languages you don't need to speed up startup
+
+editor.load_plugin("syntax/lua.lua")
+editor.load_plugin("syntax/c.lua")
+editor.load_plugin("syntax/python.lua")
+editor.load_plugin("syntax/javascript.lua")
+editor.load_plugin("syntax/rust.lua")
+editor.load_plugin("syntax/go.lua")
+editor.load_plugin("syntax/java.lua")
+editor.load_plugin("syntax/ruby.lua")
+editor.load_plugin("syntax/typescript.lua")
+editor.load_plugin("syntax/shell.lua")
+editor.load_plugin("syntax/html.lua")
+editor.load_plugin("syntax/css.lua")
+editor.load_plugin("syntax/json.lua")
+editor.load_plugin("syntax/markdown.lua")
+
+-- ============================================================================
+-- Core Plugins
+-- ============================================================================
+
+-- Core utility functions (insert_text, duplicate_line, etc.)
+editor.load_plugin("core.lua")
+
+-- Search and replace functionality
+editor.load_plugin("search.lua")
+
+-- ============================================================================
+-- Custom Functions
+-- ============================================================================
+-- Define your own custom functions here
+
+function quick_comment()
+    local x, y = buffer.get_cursor()
+    buffer.set_cursor(0, y)
+    buffer.insert_string("# ")
+    buffer.set_cursor(x + 2, y)
+    editor.message("Line commented")
+end
+
+-- Example: Insert current date
+function insert_date()
+    local date = os.date("%Y-%m-%d")
+    buffer.insert_string(date)
+    editor.message("Date inserted")
+end
+
+-- ============================================================================
+-- Keybindings
+-- ============================================================================
+-- Bind custom functions to key combinations
+-- Format: editor.bind_key(key, modifiers, "function_name")
+--
+-- Modifiers:
+--   editor.KMOD.NONE  - No modifier
+--   editor.KMOD.CTRL  - Control key
+--   editor.KMOD.ALT   - Alt key
+--   editor.KMOD.SHIFT - Shift key
+
+-- Example keybindings (uncomment to enable):
+-- editor.bind_key(string.byte('d'), editor.KMOD.CTRL, "insert_date")
+-- editor.bind_key(string.byte('/'), editor.KMOD.CTRL, "quick_comment")
+
+-- ============================================================================
+-- Startup
+-- ============================================================================
+
+-- Display a startup message
+editor.message("OCCE ready! Press : for commands")

@@ -228,6 +228,37 @@ static int l_editor_unbind_key(lua_State *L) {
     return 0;
 }
 
+/* Lua API: editor.load_plugin(filename) - Load plugin with dev mode support */
+static int l_editor_load_plugin(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    const char *filename = luaL_checkstring(L, 1);
+    char plugin_path[512];
+    int result = -1;
+
+    /* Try 1: Local plugins directory (for development) */
+    snprintf(plugin_path, sizeof(plugin_path), "./plugins/%s", filename);
+    result = lua_bridge_load_plugin(ed, plugin_path);
+
+    /* Try 2: User config directory */
+    if (result != 0 && ed->config_dir) {
+        snprintf(plugin_path, sizeof(plugin_path), "%s/plugins/%s", ed->config_dir, filename);
+        result = lua_bridge_load_plugin(ed, plugin_path);
+    }
+
+    if (result == 0) {
+        lua_pushboolean(L, 1);
+        return 1;
+    } else {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, "Failed to load plugin from all locations");
+        return 2;
+    }
+}
+
 /* Register buffer API functions */
 static void register_buffer_api(lua_State *L) {
     lua_newtable(L);
@@ -283,6 +314,9 @@ static void register_editor_api(lua_State *L) {
 
     lua_pushcfunction(L, l_editor_unbind_key);
     lua_setfield(L, -2, "unbind_key");
+
+    lua_pushcfunction(L, l_editor_load_plugin);
+    lua_setfield(L, -2, "load_plugin");
 
     /* Key modifier constants */
     lua_newtable(L);

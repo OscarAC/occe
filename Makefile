@@ -30,7 +30,7 @@ OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
 # Debug build
 DEBUG_CFLAGS = -Wall -Wextra -std=c11 -Iinclude -g -O0 -DDEBUG
 
-.PHONY: all clean debug install
+.PHONY: all clean debug install uninstall run
 
 all: $(BUILD_DIR) $(TARGET)
 
@@ -52,7 +52,26 @@ clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
 install: $(TARGET)
+	@echo "Installing occe binary..."
 	install -m 755 $(TARGET) /usr/local/bin/
+	@echo "Setting up user configuration directory..."
+	mkdir -p $(HOME)/.config/occe/plugins
+	@echo "Copying plugins..."
+	cp -r $(PLUGIN_DIR)/* $(HOME)/.config/occe/plugins/
+	@if [ ! -f "$(HOME)/.config/occe/init.lua" ]; then \
+		echo "Creating default init.lua..."; \
+		cp init.lua.example $(HOME)/.config/occe/init.lua; \
+	else \
+		echo "init.lua already exists, skipping..."; \
+	fi
+	@echo "Installation complete!"
+	@echo "Configuration: $(HOME)/.config/occe/"
+
+uninstall:
+	@echo "Removing occe binary..."
+	rm -f /usr/local/bin/$(TARGET)
+	@echo "Note: Configuration directory $(HOME)/.config/occe/ was NOT removed"
+	@echo "Remove manually if desired: rm -rf $(HOME)/.config/occe/"
 
 run: $(TARGET)
 	./$(TARGET)

@@ -45,6 +45,7 @@ test_*.lua
 demo_*.txt
 *.tmp
 *.log
+docs/
 
 # Claude Code workspace (keep in repo)
 !.claude/
