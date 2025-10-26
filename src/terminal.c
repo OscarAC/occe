@@ -181,6 +181,20 @@ int terminal_read_key(void) {
                         case '7': return KEY_HOME;
                         case '8': return KEY_END;
                     }
+                } else if (seq[1] == '1' && seq[2] == ';') {
+                    /* Read modifier and direction: \x1b[1;5X */
+                    char mod, dir;
+                    if (read(STDIN_FILENO, &mod, 1) != 1) return '\x1b';
+                    if (read(STDIN_FILENO, &dir, 1) != 1) return '\x1b';
+
+                    if (mod == '5') {  /* Ctrl modifier */
+                        switch (dir) {
+                            case 'A': return KEY_CTRL_ARROW_UP;
+                            case 'B': return KEY_CTRL_ARROW_DOWN;
+                            case 'C': return KEY_CTRL_ARROW_RIGHT;
+                            case 'D': return KEY_CTRL_ARROW_LEFT;
+                        }
+                    }
                 }
             } else {
                 switch (seq[1]) {

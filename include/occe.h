@@ -12,32 +12,28 @@
 typedef struct Editor Editor;
 typedef struct Buffer Buffer;
 typedef struct Window Window;
+typedef struct TabGroup TabGroup;
 typedef struct Terminal Terminal;
 typedef struct KeyMap KeyMap;
-typedef struct GitRepo GitRepo;
-
-/* Editor modes */
-typedef enum {
-    MODE_NORMAL,
-    MODE_INSERT,
-    MODE_COMMAND,
-    MODE_VISUAL
-} EditorMode;
 
 /* Main editor state */
 struct Editor {
     Terminal *term;
     Buffer **buffers;
     size_t buffer_count;
-    Window *root_window;
-    Window *active_window;
+
+    /* Window/Tab management */
+    TabGroup *tab_groups;      /* Linked list of tabs */
+    TabGroup *active_tab;      /* Currently visible tab */
+    Window *root_window;       /* Active tab's root (convenience) */
+    Window *active_window;     /* Currently focused window (convenience) */
+    int next_window_id;        /* For unique window IDs */
+    int next_tab_id;           /* For unique tab IDs */
+
     bool running;
     void *lua_state;
 
-    /* Mode and command state */
-    EditorMode mode;
-    char command_buf[256];
-    size_t command_len;
+    /* Window command state */
     bool window_command_mode;  /* True after Ctrl+W pressed */
 
     /* Status message */
@@ -54,9 +50,6 @@ struct Editor {
     char *clipboard;
     size_t clipboard_len;
 
-    /* Git integration */
-    GitRepo *git_repo;
-
     /* Config directory path */
     char *config_dir;
 };
@@ -67,8 +60,7 @@ void editor_destroy(Editor *ed);
 int editor_run(Editor *ed);
 void editor_quit(Editor *ed);
 
-/* Mode and command functions */
-void editor_set_mode(Editor *ed, EditorMode mode);
+/* Command functions */
 void editor_execute_command(Editor *ed, const char *cmd);
 void editor_set_status(Editor *ed, const char *msg);
 

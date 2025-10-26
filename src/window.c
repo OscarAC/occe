@@ -1,8 +1,9 @@
+#define _POSIX_C_SOURCE 200809L
 #include "window.h"
 #include "terminal.h"
 #include "syntax.h"
 #include "colors.h"
-#include "git.h"
+#include "lua_bridge.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -16,12 +17,61 @@ Window *window_create_leaf(Buffer *buf, int x, int y, int w, int h) {
     win->y = y;
     win->width = w;
     win->height = h;
-    win->buffer = buf;
+    win->id = 0;  /* Will be set by caller */
+
+    /* Content */
+    win->content_type = CONTENT_BUFFER;
+    win->content.buffer = buf;
+    win->renderer_name = NULL;
     win->row_offset = 0;
     win->col_offset = 0;
+
+    /* Split */
     win->left = NULL;
     win->right = NULL;
     win->split_ratio = 0.5f;
+
+    /* Layout hints */
+    win->min_width = 10;
+    win->min_height = 3;
+    win->max_width = -1;  /* Unlimited */
+    win->max_height = -1;
+    win->weight = 1.0f;
+    win->focused = false;
+
+    return win;
+}
+
+Window *window_create_leaf_custom(const char *renderer, int x, int y, int w, int h) {
+    Window *win = malloc(sizeof(Window));
+    if (!win) return NULL;
+
+    win->type = WINDOW_LEAF;
+    win->x = x;
+    win->y = y;
+    win->width = w;
+    win->height = h;
+    win->id = 0;  /* Will be set by caller */
+
+    /* Content */
+    win->content_type = CONTENT_CUSTOM;
+    win->content.custom_data = NULL;  /* Will be set from Lua */
+    win->renderer_name = renderer ? strdup(renderer) : NULL;
+    win->row_offset = 0;
+    win->col_offset = 0;
+
+    /* Split */
+    win->left = NULL;
+    win->right = NULL;
+    win->split_ratio = 0.5f;
+
+    /* Layout hints */
+    win->min_width = 10;
+    win->min_height = 3;
+    win->max_width = -1;
+    win->max_height = -1;
+    win->weight = 1.0f;
+    win->focused = false;
 
     return win;
 }
@@ -31,12 +81,27 @@ Window *window_create_split(WindowType type, Window *left, Window *right, float 
     if (!win) return NULL;
 
     win->type = type;
-    win->buffer = NULL;
+    win->id = 0;  /* Will be set by caller */
+
+    /* Content - splits don't have content */
+    win->content_type = CONTENT_BUFFER;
+    win->content.buffer = NULL;
+    win->renderer_name = NULL;
+    win->row_offset = 0;
+    win->col_offset = 0;
+
+    /* Split */
     win->left = left;
     win->right = right;
     win->split_ratio = ratio;
-    win->row_offset = 0;
-    win->col_offset = 0;
+
+    /* Layout hints */
+    win->min_width = 10;
+    win->min_height = 3;
+    win->max_width = -1;
+    win->max_height = -1;
+    win->weight = 1.0f;
+    win->focused = false;
 
     return win;
 }
@@ -47,6 +112,11 @@ void window_destroy(Window *win) {
     if (win->type != WINDOW_LEAF) {
         window_destroy(win->left);
         window_destroy(win->right);
+    }
+
+    /* Free renderer name if it exists */
+    if (win->renderer_name) {
+        free(win->renderer_name);
     }
 
     free(win);
@@ -71,10 +141,17 @@ void window_resize(Window *win, int x, int y, int w, int h) {
     }
 }
 
-static void window_render_leaf(Window *win, Terminal *term, bool show_line_numbers) {
-    if (!win->buffer) return;
+static void window_render_leaf(Window *win, Terminal *term, Editor *ed, bool show_line_numbers) {
+    /* Handle custom renderers */
+    if (win->content_type == CONTENT_CUSTOM && win->renderer_name) {
+        /* Call Lua renderer */
+        lua_bridge_call_window_renderer(ed, win);
+        return;
+    }
 
-    Buffer *buf = win->buffer;
+    if (!win->content.buffer) return;
+
+    Buffer *buf = win->content.buffer;
 
     /* Calculate line number gutter width */
     int gutter_width = 0;
@@ -130,25 +207,13 @@ static void window_render_leaf(Window *win, Terminal *term, bool show_line_numbe
                 /* Reset color */
                 terminal_write_str(term, "\x1b[0m");
 
-                /* Render git status symbol */
-                if (buf->git_diff && file_row < (int)buf->git_diff->num_lines) {
-                    GitLineStatus status = buf->git_diff->line_statuses[file_row];
-                    switch (status) {
-                        case GIT_ADDED:
-                            terminal_write_str(term, "\x1b[32m+\x1b[0m ");  /* Green + */
-                            break;
-                        case GIT_MODIFIED:
-                            terminal_write_str(term, "\x1b[33m~\x1b[0m ");  /* Yellow ~ */
-                            break;
-                        case GIT_DELETED:
-                            terminal_write_str(term, "\x1b[31m-\x1b[0m ");  /* Red - */
-                            break;
-                        default:
-                            terminal_write_str(term, "  ");  /* No change */
-                            break;
-                    }
+                /* Render gutter via Lua plugin (e.g., git status) */
+                char *gutter = lua_bridge_call_gutter_renderer(ed, file_row);
+                if (gutter) {
+                    terminal_write_str(term, gutter);
+                    free(gutter);
                 } else {
-                    terminal_write_str(term, "  ");  /* No git info */
+                    terminal_write_str(term, "  ");  /* No gutter renderer */
                 }
             }
         }
@@ -341,19 +406,10 @@ static void window_render_leaf(Window *win, Terminal *term, bool show_line_numbe
     terminal_write_str(term, "\x1b[7m"); /* Invert colors */
 
     char status[256];
-    int len;
-    if (buf->git_branch) {
-        len = snprintf(status, sizeof(status), " %s %s[%s] | %d:%d ",
-                       buf->filename ? buf->filename : "[No Name]",
-                       buf->modified ? "[+] " : "",
-                       buf->git_branch,
-                       buf->cursor_y + 1, buf->cursor_x + 1);
-    } else {
-        len = snprintf(status, sizeof(status), " %s %s| %d:%d ",
-                       buf->filename ? buf->filename : "[No Name]",
-                       buf->modified ? "[+] " : "",
-                       buf->cursor_y + 1, buf->cursor_x + 1);
-    }
+    int len = snprintf(status, sizeof(status), " %s %s| %d:%d ",
+                   buf->filename ? buf->filename : "[No Name]",
+                   buf->modified ? "[+] " : "",
+                   buf->cursor_y + 1, buf->cursor_x + 1);
 
     if (len > win->width) len = win->width;
     terminal_write(term, status, len);
@@ -366,14 +422,14 @@ static void window_render_leaf(Window *win, Terminal *term, bool show_line_numbe
     terminal_write_str(term, "\x1b[m"); /* Reset colors */
 }
 
-void window_render(Window *win, Terminal *term, bool show_line_numbers) {
+void window_render(Window *win, Terminal *term, Editor *ed, bool show_line_numbers) {
     if (!win) return;
 
     if (win->type == WINDOW_LEAF) {
-        window_render_leaf(win, term, show_line_numbers);
+        window_render_leaf(win, term, ed, show_line_numbers);
     } else {
-        window_render(win->left, term, show_line_numbers);
-        window_render(win->right, term, show_line_numbers);
+        window_render(win->left, term, ed, show_line_numbers);
+        window_render(win->right, term, ed, show_line_numbers);
     }
 }
 
@@ -469,16 +525,199 @@ Window *window_close_split(Window *root, Window *to_close, Window **new_active) 
 Window *window_only(Window *root, Window *to_keep) {
     if (!root || !to_keep || to_keep->type != WINDOW_LEAF) return root;
 
-    /* Create a new single window with the buffer from to_keep */
-    Buffer *buf = to_keep->buffer;
+    /* Save window properties */
     int x = root->x;
     int y = root->y;
     int w = root->width;
     int h = root->height;
+    int id = to_keep->id;
+
+    /* Create a new single window based on content type */
+    Window *new_win;
+    if (to_keep->content_type == CONTENT_BUFFER) {
+        Buffer *buf = to_keep->content.buffer;
+        new_win = window_create_leaf(buf, x, y, w, h);
+    } else {
+        new_win = window_create_leaf_custom(to_keep->renderer_name, x, y, w, h);
+        new_win->content.custom_data = to_keep->content.custom_data;
+    }
+    new_win->id = id;
 
     /* Destroy old tree */
     window_destroy(root);
 
-    /* Create new single window */
-    return window_create_leaf(buf, x, y, w, h);
+    return new_win;
+}
+
+/* Find window by ID */
+Window *window_find_by_id(Window *root, int id) {
+    if (!root) return NULL;
+    if (root->id == id) return root;
+
+    if (root->type != WINDOW_LEAF) {
+        Window *found = window_find_by_id(root->left, id);
+        if (found) return found;
+        return window_find_by_id(root->right, id);
+    }
+
+    return NULL;
+}
+
+/* Set focused state for a window */
+void window_set_focused(Window *win, bool focused) {
+    if (!win) return;
+    win->focused = focused;
+}
+
+/* Get window in a direction (left/right/up/down) */
+Window *window_get_direction(Window *root, Window *current, const char *direction) {
+    /* Simplified implementation - just cycle for now */
+    /* TODO: Implement proper directional navigation */
+    if (!root || !current || !direction) return NULL;
+
+    if (strcmp(direction, "left") == 0 || strcmp(direction, "up") == 0) {
+        return window_get_prev_leaf(root, current);
+    } else if (strcmp(direction, "right") == 0 || strcmp(direction, "down") == 0) {
+        return window_get_next_leaf(root, current);
+    }
+
+    return NULL;
+}
+
+/* Swap two windows' content */
+void window_swap(Window *a, Window *b) {
+    if (!a || !b || a->type != WINDOW_LEAF || b->type != WINDOW_LEAF) return;
+
+    /* Swap content type */
+    ContentType temp_type = a->content_type;
+    a->content_type = b->content_type;
+    b->content_type = temp_type;
+
+    /* Swap content union */
+    if (a->content_type == CONTENT_BUFFER && b->content_type == CONTENT_BUFFER) {
+        Buffer *temp = a->content.buffer;
+        a->content.buffer = b->content.buffer;
+        b->content.buffer = temp;
+    } else {
+        void *temp_data = a->content.custom_data;
+        a->content.custom_data = b->content.custom_data;
+        b->content.custom_data = temp_data;
+
+        char *temp_name = a->renderer_name;
+        a->renderer_name = b->renderer_name;
+        b->renderer_name = temp_name;
+    }
+}
+
+/* Set split ratio for a split window */
+void window_set_split_ratio(Window *win, float ratio) {
+    if (!win || win->type == WINDOW_LEAF) return;
+    if (ratio < 0.1f) ratio = 0.1f;
+    if (ratio > 0.9f) ratio = 0.9f;
+    win->split_ratio = ratio;
+}
+
+/* Tab group operations */
+TabGroup *tabgroup_create(const char *name, Window *root) {
+    TabGroup *group = malloc(sizeof(TabGroup));
+    if (!group) return NULL;
+
+    group->name = name ? strdup(name) : strdup("Tab");
+    group->id = 0;  /* Will be set by caller */
+    group->root_window = root;
+    group->active_window = root;
+    group->next = NULL;
+
+    return group;
+}
+
+void tabgroup_destroy(TabGroup *group) {
+    if (!group) return;
+
+    if (group->name) free(group->name);
+    if (group->root_window) window_destroy(group->root_window);
+    free(group);
+}
+
+TabGroup *tabgroup_find_by_id(TabGroup *head, int id) {
+    TabGroup *current = head;
+    while (current) {
+        if (current->id == id) return current;
+        current = current->next;
+    }
+    return NULL;
+}
+
+/* Advanced layout operations */
+
+/* Count number of leaf windows */
+int window_count_leaves(Window *win) {
+    if (!win) return 0;
+    if (win->type == WINDOW_LEAF) return 1;
+    return window_count_leaves(win->left) + window_count_leaves(win->right);
+}
+
+/* Collect all leaf windows into an array */
+void window_collect_all_leaves(Window *win, Window **leaves, int *count, int max) {
+    if (!win || !leaves || !count || *count >= max) return;
+
+    if (win->type == WINDOW_LEAF) {
+        leaves[(*count)++] = win;
+    } else {
+        window_collect_all_leaves(win->left, leaves, count, max);
+        window_collect_all_leaves(win->right, leaves, count, max);
+    }
+}
+
+/* Equalize all split ratios to distribute space evenly */
+void window_equalize_sizes(Window *win) {
+    if (!win || win->type == WINDOW_LEAF) return;
+
+    /* Count leaves in left and right subtrees */
+    int left_count = window_count_leaves(win->left);
+    int right_count = window_count_leaves(win->right);
+    int total = left_count + right_count;
+
+    if (total > 0) {
+        /* Set ratio proportional to number of leaves */
+        win->split_ratio = (float)left_count / (float)total;
+    } else {
+        win->split_ratio = 0.5f;
+    }
+
+    /* Recursively equalize children */
+    window_equalize_sizes(win->left);
+    window_equalize_sizes(win->right);
+}
+
+/* Find parent of a window */
+Window *window_find_parent(Window *root, Window *child) {
+    if (!root || !child || root == child) return NULL;
+
+    if (root->type != WINDOW_LEAF) {
+        if (root->left == child || root->right == child) {
+            return root;
+        }
+
+        Window *found = window_find_parent(root->left, child);
+        if (found) return found;
+
+        return window_find_parent(root->right, child);
+    }
+
+    return NULL;
+}
+
+/* Find sibling of a window */
+Window *window_find_sibling(Window *root, Window *target) {
+    if (!root || !target) return NULL;
+
+    Window *parent = window_find_parent(root, target);
+    if (!parent) return NULL;
+
+    if (parent->left == target) {
+        return parent->right;
+    } else {
+        return parent->left;
+    }
 }

@@ -8,7 +8,6 @@
 typedef struct Syntax Syntax;
 typedef struct HighlightedLine HighlightedLine;
 typedef struct UndoStack UndoStack;
-typedef struct GitDiff GitDiff;
 
 /* Row in the buffer */
 typedef struct {
@@ -39,10 +38,6 @@ typedef struct Buffer {
     bool has_selection;
     int select_start_x;
     int select_start_y;
-
-    /* Git integration */
-    GitDiff *git_diff;
-    char *git_branch;  /* Current branch name */
 
     /* Search */
     char *search_term;  /* Current search term for highlighting */

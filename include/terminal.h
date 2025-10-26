@@ -23,6 +23,7 @@ typedef enum {
     KEY_CTRL_Q = 17,
     KEY_CTRL_R = 18,
     KEY_CTRL_S = 19,
+    KEY_CTRL_V = 22,
     KEY_CTRL_W = 23,
     KEY_CTRL_Z = 26,
     KEY_ENTER = '\r',
@@ -38,6 +39,10 @@ typedef enum {
     KEY_PAGE_UP,
     KEY_PAGE_DOWN,
     KEY_MOUSE,
+    KEY_CTRL_ARROW_LEFT,
+    KEY_CTRL_ARROW_RIGHT,
+    KEY_CTRL_ARROW_UP,
+    KEY_CTRL_ARROW_DOWN,
 } KeyCode;
 
 /* Mouse event structure */

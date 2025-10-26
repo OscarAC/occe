@@ -8,7 +8,6 @@
 #include "syntax.h"
 #include "colors.h"
 #include "undo.h"
-#include "git.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -46,15 +45,19 @@ Editor *editor_create(void) {
 
     ed->buffers = NULL;
     ed->buffer_count = 0;
+
+    /* Initialize window/tab management */
+    ed->tab_groups = NULL;
+    ed->active_tab = NULL;
     ed->root_window = NULL;
     ed->active_window = NULL;
+    ed->next_window_id = 1;
+    ed->next_tab_id = 1;
+
     ed->running = true;
     ed->lua_state = NULL;
 
-    /* Initialize mode and command state - start in NORMAL mode like vim */
-    ed->mode = MODE_NORMAL;
-    ed->command_len = 0;
-    ed->command_buf[0] = '\0';
+    /* Initialize window command state */
     ed->window_command_mode = false;
     ed->status_len = 0;
     ed->status_msg[0] = '\0';
@@ -73,9 +76,6 @@ Editor *editor_create(void) {
     /* Initialize clipboard */
     ed->clipboard = NULL;
     ed->clipboard_len = 0;
-
-    /* Initialize git */
-    ed->git_repo = NULL;
 
     /* Get config directory */
     ed->config_dir = get_config_dir();
@@ -115,8 +115,16 @@ void editor_destroy(Editor *ed) {
     /* Clean up keybindings */
     keymap_destroy(ed->keymap);
 
-    /* Clean up windows */
-    if (ed->root_window) {
+    /* Clean up tab groups */
+    TabGroup *current_tab = ed->tab_groups;
+    while (current_tab) {
+        TabGroup *next = current_tab->next;
+        tabgroup_destroy(current_tab);
+        current_tab = next;
+    }
+
+    /* Clean up windows (if not using tabs) */
+    if (ed->root_window && !ed->tab_groups) {
         window_destroy(ed->root_window);
     }
 
@@ -129,9 +137,6 @@ void editor_destroy(Editor *ed) {
     /* Clean up clipboard */
     if (ed->clipboard) free(ed->clipboard);
 
-    /* Clean up git */
-    if (ed->git_repo) git_repo_close(ed->git_repo);
-
     /* Clean up config directory path */
     if (ed->config_dir) free(ed->config_dir);
 
@@ -143,14 +148,6 @@ void editor_destroy(Editor *ed) {
 
 void editor_quit(Editor *ed) {
     ed->running = false;
-}
-
-void editor_set_mode(Editor *ed, EditorMode mode) {
-    ed->mode = mode;
-    if (mode == MODE_COMMAND) {
-        ed->command_len = 0;
-        ed->command_buf[0] = '\0';
-    }
 }
 
 void editor_set_status(Editor *ed, const char *msg) {
@@ -186,7 +183,7 @@ static void editor_split_window(Editor *ed, WindowType split_type, Buffer *new_b
     int y = current->y;
     int w = current->width;
     int h = current->height;
-    Buffer *old_buffer = current->buffer;
+    Buffer *old_buffer = current->content.buffer;
 
     /* Create two new leaf windows */
     Window *win1 = window_create_leaf(old_buffer, 0, 0, 0, 0);
@@ -200,7 +197,7 @@ static void editor_split_window(Editor *ed, WindowType split_type, Buffer *new_b
 
     /* Convert current window to a split */
     current->type = split_type;
-    current->buffer = NULL;
+    current->content.buffer = NULL;
     current->left = win1;
     current->right = win2;
     current->split_ratio = 0.5f;
@@ -222,8 +219,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
     }
 
     if (strcmp(cmd, "w") == 0 || strcmp(cmd, "write") == 0) {
-        if (ed->active_window && ed->active_window->buffer) {
-            if (buffer_save(ed->active_window->buffer) == 0) {
+        if (ed->active_window && ed->active_window->content.buffer) {
+            if (buffer_save(ed->active_window->content.buffer) == 0) {
                 editor_set_status(ed, "File saved");
             } else {
                 editor_set_status(ed, "Error saving file");
@@ -233,8 +230,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
     }
 
     if (strcmp(cmd, "wq") == 0) {
-        if (ed->active_window && ed->active_window->buffer) {
-            buffer_save(ed->active_window->buffer);
+        if (ed->active_window && ed->active_window->content.buffer) {
+            buffer_save(ed->active_window->content.buffer);
         }
         editor_quit(ed);
         return;
@@ -261,7 +258,7 @@ void editor_execute_command(Editor *ed, const char *cmd) {
         for (size_t i = 0; i < ed->buffer_count && offset < (int)sizeof(msg) - 50; i++) {
             const char *name = ed->buffers[i]->filename ? ed->buffers[i]->filename : "[No Name]";
             const char *modified = ed->buffers[i]->modified ? "[+]" : "";
-            const char *active = (ed->active_window && ed->active_window->buffer == ed->buffers[i]) ? "*" : " ";
+            const char *active = (ed->active_window && ed->active_window->content.buffer == ed->buffers[i]) ? "*" : " ";
             offset += snprintf(msg + offset, sizeof(msg) - offset, "%s%zu:%s%s ",
                              active, i + 1, name, modified);
         }
@@ -312,8 +309,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
             } else {
                 /* No filename - create empty buffer WITHOUT filename to prevent data loss */
                 /* Copy content from current buffer but don't share the filename */
-                if (ed->active_window && ed->active_window->buffer) {
-                    Buffer *src = ed->active_window->buffer;
+                if (ed->active_window && ed->active_window->content.buffer) {
+                    Buffer *src = ed->active_window->content.buffer;
                     for (size_t i = 0; i < src->num_rows; i++) {
                         buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
                     }
@@ -357,8 +354,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
             } else {
                 /* No filename - create empty buffer WITHOUT filename to prevent data loss */
                 /* Copy content from current buffer but don't share the filename */
-                if (ed->active_window && ed->active_window->buffer) {
-                    Buffer *src = ed->active_window->buffer;
+                if (ed->active_window && ed->active_window->content.buffer) {
+                    Buffer *src = ed->active_window->content.buffer;
                     for (size_t i = 0; i < src->num_rows; i++) {
                         buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
                     }
@@ -385,43 +382,7 @@ void editor_execute_command(Editor *ed, const char *cmd) {
     }
 }
 
-static void editor_process_command_key(Editor *ed, int key) {
-    switch (key) {
-        case KEY_ENTER:
-            /* Execute command */
-            editor_execute_command(ed, ed->command_buf);
-            editor_set_mode(ed, MODE_INSERT);
-            break;
-
-        case KEY_ESC:
-        case KEY_CTRL_C:
-            /* Cancel command */
-            editor_set_mode(ed, MODE_INSERT);
-            break;
-
-        case KEY_BACKSPACE:
-            if (ed->command_len > 0) {
-                ed->command_len--;
-                ed->command_buf[ed->command_len] = '\0';
-            }
-            break;
-
-        default:
-            /* Add character to command buffer */
-            if (key >= 32 && key < 127 && ed->command_len < sizeof(ed->command_buf) - 1) {
-                ed->command_buf[ed->command_len++] = key;
-                ed->command_buf[ed->command_len] = '\0';
-            }
-            break;
-    }
-}
-
 static void editor_process_keypress(Editor *ed, int key) {
-    /* Handle command mode separately */
-    if (ed->mode == MODE_COMMAND) {
-        editor_process_command_key(ed, key);
-        return;
-    }
 
     /* Handle window command mode */
     if (ed->window_command_mode) {
@@ -482,49 +443,6 @@ static void editor_process_keypress(Editor *ed, int key) {
         return;
     }
 
-    /* Check for mode switching */
-    if (key == ':' && (ed->mode == MODE_NORMAL || ed->mode == MODE_INSERT)) {
-        editor_set_mode(ed, MODE_COMMAND);
-        return;
-    }
-
-    /* Enter INSERT mode with 'i' from NORMAL mode */
-    if (key == 'i' && ed->mode == MODE_NORMAL) {
-        ed->mode = MODE_INSERT;
-        editor_set_status(ed, "-- INSERT --");
-        return;
-    }
-
-    /* Exit INSERT mode with ESC to NORMAL mode */
-    if (key == KEY_ESC && ed->mode == MODE_INSERT) {
-        ed->mode = MODE_NORMAL;
-        editor_set_status(ed, "");
-        return;
-    }
-
-    /* Enter visual mode with 'v' from NORMAL mode */
-    if (key == 'v' && ed->mode == MODE_NORMAL) {
-        ed->mode = MODE_VISUAL;
-        if (ed->active_window && ed->active_window->buffer) {
-            Buffer *buf = ed->active_window->buffer;
-            buf->has_selection = true;
-            buf->select_start_x = buf->cursor_x;
-            buf->select_start_y = buf->cursor_y;
-            editor_set_status(ed, "-- VISUAL --");
-        }
-        return;
-    }
-
-    /* Exit visual mode with ESC back to NORMAL */
-    if (key == KEY_ESC && ed->mode == MODE_VISUAL) {
-        ed->mode = MODE_NORMAL;
-        if (ed->active_window && ed->active_window->buffer) {
-            ed->active_window->buffer->has_selection = false;
-        }
-        editor_set_status(ed, "");
-        return;
-    }
-
     /* Handle mouse events */
     if (key == KEY_MOUSE) {
         MouseEvent mouse;
@@ -534,8 +452,8 @@ static void editor_process_keypress(Editor *ed, int key) {
 
         if (mouse.button == 0 && mouse.press) {
             /* Left click - position cursor and start selection */
-            if (clicked_win && clicked_win->buffer) {
-                Buffer *buf = clicked_win->buffer;
+            if (clicked_win && clicked_win->content.buffer) {
+                Buffer *buf = clicked_win->content.buffer;
                 int file_row = mouse.y + clicked_win->row_offset - clicked_win->y;
                 int file_col = mouse.x - clicked_win->x;
 
@@ -559,8 +477,8 @@ static void editor_process_keypress(Editor *ed, int key) {
             }
         } else if (mouse.button == 0 && mouse.drag) {
             /* Left drag - extend selection */
-            if (clicked_win && clicked_win->buffer) {
-                Buffer *buf = clicked_win->buffer;
+            if (clicked_win && clicked_win->content.buffer) {
+                Buffer *buf = clicked_win->content.buffer;
                 int file_row = mouse.y + clicked_win->row_offset - clicked_win->y;
                 int file_col = mouse.x - clicked_win->x;
 
@@ -586,16 +504,21 @@ static void editor_process_keypress(Editor *ed, int key) {
             }
         } else if (mouse.button == 65) {
             /* Scroll down */
-            if (clicked_win && clicked_win->buffer) {
+            if (clicked_win && clicked_win->content.buffer) {
                 clicked_win->row_offset += 3;
             }
         }
         return;
     }
 
-    if (!ed->active_window || !ed->active_window->buffer) return;
+    /* Check for custom keybindings first */
+    if (ed->keymap && keymap_execute(ed->keymap, ed, key, KMOD_NONE) == 0) {
+        return;  /* Keybinding handled it */
+    }
 
-    Buffer *buf = ed->active_window->buffer;
+    if (!ed->active_window || !ed->active_window->content.buffer) return;
+
+    Buffer *buf = ed->active_window->content.buffer;
 
     switch (key) {
         case KEY_CTRL_Q:
@@ -721,149 +644,32 @@ static void editor_process_keypress(Editor *ed, int key) {
             }
             break;
 
-        case 'y':
-            /* Yank (copy) in visual mode */
-            if (ed->mode == MODE_VISUAL && buf->has_selection) {
+        case KEY_CTRL_C:
+            /* Copy selection to clipboard */
+            if (buf->has_selection) {
                 size_t len;
                 char *text = buffer_get_selected_text(buf, &len);
                 if (text) {
                     if (ed->clipboard) free(ed->clipboard);
                     ed->clipboard = text;
                     ed->clipboard_len = len;
-                    editor_set_status(ed, "Yanked");
-
-                    /* Exit visual mode back to NORMAL */
-                    ed->mode = MODE_NORMAL;
+                    editor_set_status(ed, "Copied");
                     buf->has_selection = false;
                 }
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
             }
             break;
 
-        case 'd':
-            /* Delete (cut) in visual mode */
-            if (ed->mode == MODE_VISUAL && buf->has_selection) {
-                size_t len;
-                char *text = buffer_get_selected_text(buf, &len);
-                if (text) {
-                    if (ed->clipboard) free(ed->clipboard);
-                    ed->clipboard = text;
-                    ed->clipboard_len = len;
-                }
-
-                buffer_delete_selection(buf);
-                editor_set_status(ed, "Deleted");
-
-                /* Exit visual mode back to NORMAL */
-                ed->mode = MODE_NORMAL;
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
-            }
-            break;
-
-        case '>':
-            /* Indent selection in visual mode */
-            if (ed->mode == MODE_VISUAL && buf->has_selection) {
-                int start_y = buf->select_start_y < buf->cursor_y ? buf->select_start_y : buf->cursor_y;
-                int end_y = buf->select_start_y > buf->cursor_y ? buf->select_start_y : buf->cursor_y;
-
-                for (int y = start_y; y <= end_y && y < (int)buf->num_rows; y++) {
-                    BufferRow *row = &buf->rows[y];
-                    while (row->capacity < row->size + 5) {
-                        row->capacity *= 2;
-                        char *new_data = realloc(row->data, row->capacity);
-                        if (!new_data) break;
-                        row->data = new_data;
-                    }
-                    memmove(&row->data[4], row->data, row->size);
-                    memcpy(row->data, "    ", 4);
-                    row->size += 4;
-                    row->data[row->size] = '\0';
-                }
-                buf->modified = true;
-                editor_set_status(ed, "Indented");
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
-            }
-            break;
-
-        case '<':
-            /* Dedent selection in visual mode */
-            if (ed->mode == MODE_VISUAL && buf->has_selection) {
-                int start_y = buf->select_start_y < buf->cursor_y ? buf->select_start_y : buf->cursor_y;
-                int end_y = buf->select_start_y > buf->cursor_y ? buf->select_start_y : buf->cursor_y;
-
-                for (int y = start_y; y <= end_y && y < (int)buf->num_rows; y++) {
-                    BufferRow *row = &buf->rows[y];
-                    int spaces = 0;
-                    while (spaces < (int)row->size && spaces < 4 && row->data[spaces] == ' ') {
-                        spaces++;
-                    }
-                    if (spaces > 0) {
-                        memmove(row->data, &row->data[spaces], row->size - spaces);
-                        row->size -= spaces;
-                        row->data[row->size] = '\0';
-                    }
-                }
-                buf->modified = true;
-                editor_set_status(ed, "Dedented");
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
-            }
-            break;
-
-        case 'p':
-            /* Paste clipboard */
+        case KEY_CTRL_V:
+            /* Paste from clipboard */
             if (ed->clipboard && ed->clipboard_len > 0) {
                 buffer_paste_text(buf, ed->clipboard, ed->clipboard_len);
                 editor_set_status(ed, "Pasted");
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
-            }
-            break;
-
-        case 'J':
-            /* Join lines - merge next line to current */
-            if (buf->cursor_y < (int)buf->num_rows - 1) {
-                BufferRow *current_row = &buf->rows[buf->cursor_y];
-                BufferRow *next_row = &buf->rows[buf->cursor_y + 1];
-
-                /* Ensure current row has enough capacity */
-                size_t needed = current_row->size + 1 + next_row->size + 1;
-                while (current_row->capacity < needed) {
-                    current_row->capacity *= 2;
-                    char *new_data = realloc(current_row->data, current_row->capacity);
-                    if (!new_data) break;
-                    current_row->data = new_data;
-                }
-
-                /* Add space between lines */
-                if (current_row->size > 0 && current_row->data[current_row->size - 1] != ' ') {
-                    current_row->data[current_row->size++] = ' ';
-                }
-
-                /* Append next line */
-                memcpy(&current_row->data[current_row->size], next_row->data, next_row->size);
-                current_row->size += next_row->size;
-                current_row->data[current_row->size] = '\0';
-
-                /* Delete next row */
-                buffer_free_row(next_row);
-                memmove(&buf->rows[buf->cursor_y + 1], &buf->rows[buf->cursor_y + 2],
-                        sizeof(BufferRow) * (buf->num_rows - buf->cursor_y - 2));
-                buf->num_rows--;
-                buf->modified = true;
-
-                editor_set_status(ed, "Lines joined");
-            } else if (key >= 32 && key < 127) {
-                buffer_insert_char(buf, key);
             }
             break;
 
         default:
-            /* Insert printable characters only in INSERT mode */
-            if (key >= 32 && key < 127 && ed->mode == MODE_INSERT) {
+            /* Insert printable characters */
+            if (key >= 32 && key < 127) {
                 buffer_insert_char(buf, key);
             }
             break;
@@ -882,40 +688,22 @@ static void editor_refresh_screen(Editor *ed) {
 
     /* Render windows */
     if (ed->root_window) {
-        window_render(ed->root_window, ed->term, ed->show_line_numbers);
+        window_render(ed->root_window, ed->term, ed, ed->show_line_numbers);
     }
 
-    /* Render command line or status message at bottom */
+    /* Render status message at bottom */
     terminal_move_cursor(ed->term, ed->term->rows - 1, 0);
     terminal_write_str(ed->term, "\x1b[K"); /* Clear line */
 
-    if (ed->mode == MODE_COMMAND) {
-        /* Show command prompt */
-        terminal_write_str(ed->term, ":");
-        terminal_write_str(ed->term, ed->command_buf);
-    } else if (ed->status_len > 0) {
+    if (ed->status_len > 0) {
         /* Show status message */
         terminal_write(ed->term, ed->status_msg, ed->status_len);
-    } else {
-        /* Show mode indicator */
-        const char *mode_str;
-        if (ed->mode == MODE_INSERT) {
-            mode_str = "-- INSERT --";
-        } else if (ed->mode == MODE_VISUAL) {
-            mode_str = "-- VISUAL --";
-        } else {
-            mode_str = "-- NORMAL --";
-        }
-        terminal_write_str(ed->term, mode_str);
     }
 
-    /* Position cursor */
-    if (ed->mode == MODE_COMMAND) {
-        /* Cursor in command line */
-        terminal_move_cursor(ed->term, ed->term->rows - 1, 1 + ed->command_len);
-    } else if (ed->active_window && ed->active_window->buffer) {
+    /* Position cursor in buffer */
+    if (ed->active_window && ed->active_window->content.buffer) {
         /* Cursor in buffer */
-        Buffer *buf = ed->active_window->buffer;
+        Buffer *buf = ed->active_window->content.buffer;
         Window *win = ed->active_window;
 
         int screen_row = buf->cursor_y - win->row_offset;

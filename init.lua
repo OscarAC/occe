@@ -20,6 +20,12 @@ editor.load_plugin("syntax/markdown.lua")
 -- Load core plugins
 editor.load_plugin("core.lua")
 editor.load_plugin("search.lua")
+editor.load_plugin("word_navigation.lua")
+editor.load_plugin("git.lua")
+editor.load_plugin("window_commands.lua")
+editor.load_plugin("buffer_list.lua")
+editor.load_plugin("layouts.lua")
+editor.load_plugin("session_manager.lua")
 
 -- Custom functions for development
 function quick_comment()
@@ -31,4 +37,4 @@ function quick_comment()
 end
 
 -- Dev mode startup message
-editor.message("OCCE [DEV MODE] - Using local plugins")
+editor.message("OCCE [DEV MODE] - Using local plugins 2")

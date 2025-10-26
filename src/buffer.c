@@ -2,7 +2,6 @@
 #include "buffer.h"
 #include "syntax.h"
 #include "undo.h"
-#include "git.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -33,10 +32,6 @@ Buffer *buffer_create(void) {
     buf->has_selection = false;
     buf->select_start_x = 0;
     buf->select_start_y = 0;
-
-    /* Git integration */
-    buf->git_diff = NULL;
-    buf->git_branch = NULL;
 
     /* Search */
     buf->search_term = NULL;
@@ -113,8 +108,6 @@ void buffer_destroy(Buffer *buf) {
     if (buf->rows) free(buf->rows);
     if (buf->filename) free(buf->filename);
     if (buf->undo_stack) undo_stack_destroy(buf->undo_stack);
-    if (buf->git_diff) git_diff_free(buf->git_diff);
-    if (buf->git_branch) free(buf->git_branch);
     if (buf->search_term) free(buf->search_term);
     free(buf);
 }
