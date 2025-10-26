@@ -1,6 +1,6 @@
 # OCCE - Editor
 
-**OCCE** is a lightweight, fast, and feature-rich code editor built with C and Lua. It combines the simplicity of traditional terminal editors with modern conveniences like syntax highlighting, git integration, and mouse support - all in a **244KB binary**.
+**OCCE** is a lightweight, fast, and feature-rich code editor built with C and Lua. It combines the simplicity of traditional terminal editors with modern conveniences like syntax highlighting, git integration, and mouse support - all in a **43KB binary**.
 
 ---
 
@@ -10,7 +10,7 @@
 
 ## Why OCCE?
 
-- **Tiny but Powerful**: Full IDE features in 244KB (compare: VS Code ~100MB, Sublime ~20MB)
+- **Tiny but Powerful**: Full IDE features in 43KB (compare: VS Code ~100MB, Sublime ~20MB)
 - **Blazing Fast**: 20ms startup, 5ms input latency, 3MB RAM usage
 - **Modern Features**: Syntax highlighting, git integration, window splitting, mouse support
 - **Extensible**: Lua plugin system for custom functionality
@@ -18,7 +18,7 @@
 
 ## ✨ Features
 
-- ⚡ **Lightning-fast C core** - 244KB binary, 20ms startup
+- ⚡ **Lightning-fast C core** - 43KB binary, 20ms startup
 - 🎨 **Syntax highlighting** - 14 languages (C, C++, Python, JS/TS, Rust, Go, Java, HTML, CSS, Lua, Shell, Markdown, JSON)
 - 🪟 **Window splitting** - Horizontal & vertical splits with full navigation
 - 🐭 **Mouse support** - Click to position, drag to select, scroll to navigate
@@ -197,7 +197,7 @@ OCCE uses a clean separation between core functionality (C) and features (Lua):
 
 ```
 ┌─────────────────────────────────────┐
-│     OCCE Core (C - 244KB)          │
+│     OCCE Core (C - 43KB)           │
 ├─────────────────────────────────────┤
 │ • Terminal I/O & Raw Mode          │
 │ • Buffer Management & Undo/Redo   │

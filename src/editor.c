@@ -897,7 +897,16 @@ static void editor_refresh_screen(Editor *ed) {
         int screen_row = buf->cursor_y - win->row_offset;
         int screen_col = buf->cursor_x - win->col_offset;
 
-        terminal_move_cursor(ed->term, win->y + screen_row, win->x + screen_col);
+        /* Calculate line number gutter width to offset cursor position */
+        int gutter_width = 0;
+        if (ed->show_line_numbers && buf->num_rows > 0) {
+            int max_line = buf->num_rows;
+            gutter_width = snprintf(NULL, 0, "%d", max_line) + 1; /* +1 for space */
+            /* Add 2 more for git symbol + space */
+            gutter_width += 2;
+        }
+
+        terminal_move_cursor(ed->term, win->y + screen_row, win->x + screen_col + gutter_width);
     }
 
     /* Show cursor */
