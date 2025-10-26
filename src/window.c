@@ -405,39 +405,51 @@ Window *window_find_leaf(Window *win, Window *target) {
 Window *window_get_next_leaf(Window *root, Window *current) {
     if (!root || !current) return NULL;
 
-    /* Collect all leaves */
-    Window *leaves[256];
+    /* Collect all leaves - use dynamic allocation */
+    size_t max_leaves = 256;
+    Window **leaves = malloc(sizeof(Window *) * max_leaves);
+    if (!leaves) return NULL;
+
     size_t count = 0;
-    window_collect_leaves(root, leaves, &count, 256);
+    window_collect_leaves(root, leaves, &count, max_leaves);
 
     /* Find current window in list */
+    Window *result = NULL;
     for (size_t i = 0; i < count; i++) {
         if (leaves[i] == current) {
             /* Return next, wrapping around */
-            return leaves[(i + 1) % count];
+            result = leaves[(i + 1) % count];
+            break;
         }
     }
 
-    return NULL;
+    free(leaves);
+    return result;
 }
 
 Window *window_get_prev_leaf(Window *root, Window *current) {
     if (!root || !current) return NULL;
 
-    /* Collect all leaves */
-    Window *leaves[256];
+    /* Collect all leaves - use dynamic allocation */
+    size_t max_leaves = 256;
+    Window **leaves = malloc(sizeof(Window *) * max_leaves);
+    if (!leaves) return NULL;
+
     size_t count = 0;
-    window_collect_leaves(root, leaves, &count, 256);
+    window_collect_leaves(root, leaves, &count, max_leaves);
 
     /* Find current window in list */
+    Window *result = NULL;
     for (size_t i = 0; i < count; i++) {
         if (leaves[i] == current) {
             /* Return previous, wrapping around */
-            return leaves[(i + count - 1) % count];
+            result = leaves[(i + count - 1) % count];
+            break;
         }
     }
 
-    return NULL;
+    free(leaves);
+    return result;
 }
 
 Window *window_close_split(Window *root, Window *to_close, Window **new_active) {

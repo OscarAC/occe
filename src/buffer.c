@@ -53,12 +53,62 @@ void buffer_free_row(BufferRow *row) {
     }
 }
 
+/* Helper to invalidate highlighting cache from a given row onwards */
+static void buffer_invalidate_highlighting(Buffer *buf, size_t from_row) {
+    if (!buf->highlighted_lines) return;
+
+    /* Free cached highlighting from from_row onwards */
+    for (size_t i = from_row; i < buf->num_rows; i++) {
+        if (buf->highlighted_lines[i]) {
+            syntax_free_highlighted_line(buf->highlighted_lines[i]);
+            buf->highlighted_lines[i] = NULL;
+        }
+    }
+}
+
+/* Helper to reallocate highlighting cache when buffer size changes */
+static void buffer_resize_highlighting_cache(Buffer *buf, size_t old_rows, size_t new_rows) {
+    if (!buf->syntax) return;
+
+    /* Free all cached highlighting first */
+    if (buf->highlighted_lines) {
+        for (size_t i = 0; i < old_rows; i++) {
+            if (buf->highlighted_lines[i]) {
+                syntax_free_highlighted_line(buf->highlighted_lines[i]);
+                buf->highlighted_lines[i] = NULL;
+            }
+        }
+        free(buf->highlighted_lines);
+        free(buf->multiline_states);
+    }
+
+    /* Reallocate for new size */
+    if (new_rows > 0) {
+        buf->highlighted_lines = calloc(new_rows, sizeof(HighlightedLine *));
+        buf->multiline_states = calloc(new_rows, sizeof(bool));
+    } else {
+        buf->highlighted_lines = NULL;
+        buf->multiline_states = NULL;
+    }
+}
+
 void buffer_destroy(Buffer *buf) {
     if (!buf) return;
 
     for (size_t i = 0; i < buf->num_rows; i++) {
         buffer_free_row(&buf->rows[i]);
     }
+
+    /* Free highlighting cache */
+    if (buf->highlighted_lines) {
+        for (size_t i = 0; i < buf->num_rows; i++) {
+            if (buf->highlighted_lines[i]) {
+                syntax_free_highlighted_line(buf->highlighted_lines[i]);
+            }
+        }
+        free(buf->highlighted_lines);
+    }
+    if (buf->multiline_states) free(buf->multiline_states);
 
     if (buf->rows) free(buf->rows);
     if (buf->filename) free(buf->filename);
@@ -173,11 +223,17 @@ void buffer_insert_char(Buffer *buf, int c) {
 
     buf->cursor_x++;
     buf->modified = true;
+
+    /* Invalidate highlighting for this line and onwards (for multiline comments) */
+    buffer_invalidate_highlighting(buf, buf->cursor_y);
 }
 
 void buffer_insert_newline(Buffer *buf) {
     if (buf->cursor_y >= (int)buf->num_rows) {
+        size_t old_rows = buf->num_rows;
         buffer_append_row(buf, "", 0);
+        /* Resize highlighting cache to accommodate new row */
+        buffer_resize_highlighting_cache(buf, old_rows, buf->num_rows);
         buf->cursor_y++;
         buf->cursor_x = 0;
         return;
@@ -216,7 +272,12 @@ void buffer_insert_newline(Buffer *buf) {
     new_row->data[rest_len] = '\0';
     new_row->size = rest_len;
 
+    size_t old_rows = buf->num_rows;
     buf->num_rows++;
+
+    /* Resize highlighting cache to accommodate new row */
+    buffer_resize_highlighting_cache(buf, old_rows, buf->num_rows);
+
     buf->cursor_y++;
 
     /* Auto-indent: copy leading whitespace from previous line */
@@ -272,6 +333,9 @@ void buffer_delete_char(Buffer *buf) {
         row->data[row->size] = '\0';
         buf->cursor_x--;
         buf->modified = true;
+
+        /* Invalidate highlighting for this line and onwards (for multiline comments) */
+        buffer_invalidate_highlighting(buf, buf->cursor_y);
     } else {
         /* Delete newline - join with previous row */
         BufferRow *prev_row = &buf->rows[buf->cursor_y - 1];
@@ -297,7 +361,12 @@ void buffer_delete_char(Buffer *buf) {
         memmove(&buf->rows[buf->cursor_y], &buf->rows[buf->cursor_y + 1],
                 sizeof(BufferRow) * (buf->num_rows - buf->cursor_y - 1));
 
+        size_t old_rows = buf->num_rows;
         buf->num_rows--;
+
+        /* Resize highlighting cache after deleting row */
+        buffer_resize_highlighting_cache(buf, old_rows, buf->num_rows);
+
         buf->cursor_y--;
         buf->modified = true;
     }
@@ -502,6 +571,9 @@ void buffer_delete_selection(Buffer *buf) {
         if (start_y >= (int)buf->num_rows) return;
         BufferRow *row = &buf->rows[start_y];
 
+        /* Clamp end_x to row size to prevent out of bounds access */
+        if (end_x > (int)row->size) end_x = row->size;
+
         int delete_count = end_x - start_x;
         if (delete_count > 0 && start_x < (int)row->size) {
             memmove(&row->data[start_x], &row->data[end_x],
@@ -512,12 +584,18 @@ void buffer_delete_selection(Buffer *buf) {
 
         buf->cursor_x = start_x;
         buf->cursor_y = start_y;
+
+        /* Invalidate highlighting for this line and onwards */
+        buffer_invalidate_highlighting(buf, start_y);
     } else {
         /* Multi-line deletion */
         if (start_y >= (int)buf->num_rows || end_y >= (int)buf->num_rows) return;
 
         BufferRow *start_row = &buf->rows[start_y];
         BufferRow *end_row = &buf->rows[end_y];
+
+        /* Clamp end_x to prevent underflow with unsigned arithmetic */
+        if (end_x > (int)end_row->size) end_x = end_row->size;
 
         /* Keep start of first line and end of last line */
         size_t new_size = start_x + (end_row->size - end_x);
@@ -545,7 +623,12 @@ void buffer_delete_selection(Buffer *buf) {
             memmove(&buf->rows[start_y + 1], &buf->rows[end_y + 1],
                     sizeof(BufferRow) * (buf->num_rows - end_y - 1));
         }
+
+        size_t old_rows = buf->num_rows;
         buf->num_rows -= rows_deleted;
+
+        /* Resize highlighting cache after deleting rows */
+        buffer_resize_highlighting_cache(buf, old_rows, buf->num_rows);
 
         buf->cursor_x = start_x;
         buf->cursor_y = start_y;
@@ -593,8 +676,48 @@ void buffer_paste_text(Buffer *buf, const char *text, size_t len) {
                 buf->cursor_x += line_len;
                 first_line = false;
             } else {
-                /* New line */
-                buffer_insert_newline(buf);
+                /* New line - insert without auto-indent to preserve pasted formatting */
+                if (buf->cursor_y >= (int)buf->num_rows) {
+                    buffer_append_row(buf, "", 0);
+                    buf->cursor_y++;
+                } else {
+                    /* Split current row at cursor without auto-indent */
+                    BufferRow *row = &buf->rows[buf->cursor_y];
+                    const char *rest = (buf->cursor_x < (int)row->size) ? &row->data[buf->cursor_x] : "";
+                    size_t rest_len = (buf->cursor_x < (int)row->size) ? row->size - buf->cursor_x : 0;
+
+                    /* Truncate current row */
+                    row->size = buf->cursor_x;
+                    row->data[row->size] = '\0';
+
+                    /* Make space for new row */
+                    if (buf->num_rows >= buf->capacity) {
+                        size_t new_capacity = buf->capacity == 0 ? 16 : buf->capacity * 2;
+                        BufferRow *new_rows = realloc(buf->rows, sizeof(BufferRow) * new_capacity);
+                        if (!new_rows) return;
+                        buf->rows = new_rows;
+                        buf->capacity = new_capacity;
+                    }
+
+                    /* Shift rows down */
+                    memmove(&buf->rows[buf->cursor_y + 2], &buf->rows[buf->cursor_y + 1],
+                            sizeof(BufferRow) * (buf->num_rows - buf->cursor_y - 1));
+
+                    /* Insert new row */
+                    BufferRow *new_row = &buf->rows[buf->cursor_y + 1];
+                    new_row->capacity = rest_len + 1;
+                    new_row->data = malloc(new_row->capacity);
+                    if (!new_row->data) return;
+
+                    memcpy(new_row->data, rest, rest_len);
+                    new_row->data[rest_len] = '\0';
+                    new_row->size = rest_len;
+
+                    buf->num_rows++;
+                    buf->cursor_y++;
+                }
+                buf->cursor_x = 0;
+
                 if (line_len > 0) {
                     BufferRow *row = &buf->rows[buf->cursor_y];
 
@@ -617,4 +740,9 @@ void buffer_paste_text(Buffer *buf, const char *text, size_t len) {
     }
 
     buf->modified = true;
+
+    /* Invalidate all highlighting since we may have inserted multiple lines */
+    if (buf->highlighted_lines) {
+        buffer_invalidate_highlighting(buf, 0);
+    }
 }

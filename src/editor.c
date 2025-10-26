@@ -51,8 +51,8 @@ Editor *editor_create(void) {
     ed->running = true;
     ed->lua_state = NULL;
 
-    /* Initialize mode and command state */
-    ed->mode = MODE_INSERT;
+    /* Initialize mode and command state - start in NORMAL mode like vim */
+    ed->mode = MODE_NORMAL;
     ed->command_len = 0;
     ed->command_buf[0] = '\0';
     ed->window_command_mode = false;
@@ -310,12 +310,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
                     buffer_append_row(new_buf, "", 0);
                 }
             } else {
-                /* No filename - create empty buffer with same file as current */
-                if (ed->active_window && ed->active_window->buffer &&
-                    ed->active_window->buffer->filename) {
-                    new_buf->filename = strdup(ed->active_window->buffer->filename);
-                }
-                /* Copy content from current buffer */
+                /* No filename - create empty buffer WITHOUT filename to prevent data loss */
+                /* Copy content from current buffer but don't share the filename */
                 if (ed->active_window && ed->active_window->buffer) {
                     Buffer *src = ed->active_window->buffer;
                     for (size_t i = 0; i < src->num_rows; i++) {
@@ -324,6 +320,7 @@ void editor_execute_command(Editor *ed, const char *cmd) {
                 } else {
                     buffer_append_row(new_buf, "", 0);
                 }
+                /* Leave new_buf->filename as NULL - user must save with new name */
             }
 
             editor_add_buffer(ed, new_buf);
@@ -358,12 +355,8 @@ void editor_execute_command(Editor *ed, const char *cmd) {
                     buffer_append_row(new_buf, "", 0);
                 }
             } else {
-                /* No filename - create empty buffer with same file as current */
-                if (ed->active_window && ed->active_window->buffer &&
-                    ed->active_window->buffer->filename) {
-                    new_buf->filename = strdup(ed->active_window->buffer->filename);
-                }
-                /* Copy content from current buffer */
+                /* No filename - create empty buffer WITHOUT filename to prevent data loss */
+                /* Copy content from current buffer but don't share the filename */
                 if (ed->active_window && ed->active_window->buffer) {
                     Buffer *src = ed->active_window->buffer;
                     for (size_t i = 0; i < src->num_rows; i++) {
@@ -372,6 +365,7 @@ void editor_execute_command(Editor *ed, const char *cmd) {
                 } else {
                     buffer_append_row(new_buf, "", 0);
                 }
+                /* Leave new_buf->filename as NULL - user must save with new name */
             }
 
             editor_add_buffer(ed, new_buf);
@@ -489,13 +483,27 @@ static void editor_process_keypress(Editor *ed, int key) {
     }
 
     /* Check for mode switching */
-    if (key == ':' && ed->mode == MODE_INSERT) {
+    if (key == ':' && (ed->mode == MODE_NORMAL || ed->mode == MODE_INSERT)) {
         editor_set_mode(ed, MODE_COMMAND);
         return;
     }
 
-    /* Enter visual mode with 'v' */
-    if (key == 'v' && ed->mode == MODE_INSERT) {
+    /* Enter INSERT mode with 'i' from NORMAL mode */
+    if (key == 'i' && ed->mode == MODE_NORMAL) {
+        ed->mode = MODE_INSERT;
+        editor_set_status(ed, "-- INSERT --");
+        return;
+    }
+
+    /* Exit INSERT mode with ESC to NORMAL mode */
+    if (key == KEY_ESC && ed->mode == MODE_INSERT) {
+        ed->mode = MODE_NORMAL;
+        editor_set_status(ed, "");
+        return;
+    }
+
+    /* Enter visual mode with 'v' from NORMAL mode */
+    if (key == 'v' && ed->mode == MODE_NORMAL) {
         ed->mode = MODE_VISUAL;
         if (ed->active_window && ed->active_window->buffer) {
             Buffer *buf = ed->active_window->buffer;
@@ -507,9 +515,9 @@ static void editor_process_keypress(Editor *ed, int key) {
         return;
     }
 
-    /* Exit visual mode with ESC */
+    /* Exit visual mode with ESC back to NORMAL */
     if (key == KEY_ESC && ed->mode == MODE_VISUAL) {
-        ed->mode = MODE_INSERT;
+        ed->mode = MODE_NORMAL;
         if (ed->active_window && ed->active_window->buffer) {
             ed->active_window->buffer->has_selection = false;
         }
@@ -724,8 +732,8 @@ static void editor_process_keypress(Editor *ed, int key) {
                     ed->clipboard_len = len;
                     editor_set_status(ed, "Yanked");
 
-                    /* Exit visual mode */
-                    ed->mode = MODE_INSERT;
+                    /* Exit visual mode back to NORMAL */
+                    ed->mode = MODE_NORMAL;
                     buf->has_selection = false;
                 }
             } else if (key >= 32 && key < 127) {
@@ -747,8 +755,8 @@ static void editor_process_keypress(Editor *ed, int key) {
                 buffer_delete_selection(buf);
                 editor_set_status(ed, "Deleted");
 
-                /* Exit visual mode */
-                ed->mode = MODE_INSERT;
+                /* Exit visual mode back to NORMAL */
+                ed->mode = MODE_NORMAL;
             } else if (key >= 32 && key < 127) {
                 buffer_insert_char(buf, key);
             }
@@ -854,8 +862,8 @@ static void editor_process_keypress(Editor *ed, int key) {
             break;
 
         default:
-            /* Insert printable characters */
-            if (key >= 32 && key < 127) {
+            /* Insert printable characters only in INSERT mode */
+            if (key >= 32 && key < 127 && ed->mode == MODE_INSERT) {
                 buffer_insert_char(buf, key);
             }
             break;

@@ -12,12 +12,15 @@ SearchResult *buffer_search(Buffer *buf, const char *query, int start_row, int s
     int col = start_col;
 
     if (forward) {
-        /* Search forward */
+        /* Search forward - skip current position to find next match */
+        /* Start searching from col+1 on first row to be consistent with backward search */
+        int search_start = (row == start_row && col < (int)buf->rows[row].size) ? col + 1 : col;
+
         for (; row < (int)buf->num_rows; row++) {
             if (row >= (int)buf->num_rows) break;
 
             BufferRow *r = &buf->rows[row];
-            const char *found = strstr(r->data + col, query);
+            const char *found = strstr(r->data + search_start, query);
 
             if (found) {
                 SearchResult *result = malloc(sizeof(SearchResult));
@@ -29,7 +32,7 @@ SearchResult *buffer_search(Buffer *buf, const char *query, int start_row, int s
                 return result;
             }
 
-            col = 0; /* Start from beginning of next lines */
+            search_start = 0; /* Start from beginning of next lines */
         }
     } else {
         /* Search backward */

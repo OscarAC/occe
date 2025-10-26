@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "keybind.h"
 #include "lua_bridge.h"
 #include <stdlib.h>

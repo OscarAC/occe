@@ -211,10 +211,11 @@ void terminal_clear(Terminal *term) {
 
 void terminal_write(Terminal *term, const char *data, size_t len) {
     while (term->buffer_used + len > term->buffer_size) {
-        term->buffer_size *= 2;
-        char *new_buf = realloc(term->screen_buffer, term->buffer_size);
-        if (!new_buf) return; /* Handle error */
+        size_t new_size = term->buffer_size * 2;
+        char *new_buf = realloc(term->screen_buffer, new_size);
+        if (!new_buf) return; /* Allocation failed, data lost */
         term->screen_buffer = new_buf;
+        term->buffer_size = new_size;
     }
 
     memcpy(term->screen_buffer + term->buffer_used, data, len);

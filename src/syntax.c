@@ -32,7 +32,10 @@ Syntax *syntax_register(const char *name) {
 void syntax_add_extension(Syntax *syn, const char *ext) {
     if (!syn) return;
 
-    syn->extensions = realloc(syn->extensions, sizeof(char *) * (syn->num_extensions + 1));
+    char **new_extensions = realloc(syn->extensions, sizeof(char *) * (syn->num_extensions + 1));
+    if (!new_extensions) return;  /* Allocation failed, keep old data */
+
+    syn->extensions = new_extensions;
     syn->extensions[syn->num_extensions] = strdup(ext);
     syn->num_extensions++;
 }
@@ -41,8 +44,11 @@ void syntax_add_rule(Syntax *syn, PatternType type, const char *pattern, Highlig
     if (!syn) return;
 
     if (syn->num_rules >= syn->rules_capacity) {
-        syn->rules_capacity = syn->rules_capacity == 0 ? 32 : syn->rules_capacity * 2;
-        syn->rules = realloc(syn->rules, sizeof(SyntaxRule) * syn->rules_capacity);
+        size_t new_capacity = syn->rules_capacity == 0 ? 32 : syn->rules_capacity * 2;
+        SyntaxRule *new_rules = realloc(syn->rules, sizeof(SyntaxRule) * new_capacity);
+        if (!new_rules) return;  /* Allocation failed, keep old data */
+        syn->rules = new_rules;
+        syn->rules_capacity = new_capacity;
     }
 
     SyntaxRule *rule = &syn->rules[syn->num_rules];
@@ -90,8 +96,11 @@ static bool is_separator(int c) {
 
 static void add_segment(HighlightedLine *hl, int start, int end, HighlightType type) {
     if (hl->num_segments >= hl->capacity) {
-        hl->capacity = hl->capacity == 0 ? 16 : hl->capacity * 2;
-        hl->segments = realloc(hl->segments, sizeof(HighlightSegment) * hl->capacity);
+        size_t new_capacity = hl->capacity == 0 ? 16 : hl->capacity * 2;
+        HighlightSegment *new_segments = realloc(hl->segments, sizeof(HighlightSegment) * new_capacity);
+        if (!new_segments) return;  /* Allocation failed, skip this segment */
+        hl->segments = new_segments;
+        hl->capacity = new_capacity;
     }
 
     HighlightSegment *seg = &hl->segments[hl->num_segments];
@@ -202,7 +211,7 @@ HighlightedLine *syntax_highlight_line(Syntax *syn, const char *line, bool prev_
             /* Extract word */
             int word_len = i - start;
             char word[256];
-            if (word_len < 256) {
+            if (word_len < 255) {  /* Leave room for null terminator */
                 strncpy(word, &line[start], word_len);
                 word[word_len] = '\0';
 

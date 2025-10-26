@@ -9,6 +9,11 @@
 
 /* Helper to run git command and get output */
 static char *run_git_command(const char *repo_path, const char *cmd) {
+    /* Validate repo_path doesn't contain shell metacharacters that could escape quotes */
+    if (repo_path && strchr(repo_path, '\'')) {
+        return NULL;  /* Reject paths with single quotes to prevent command injection */
+    }
+
     char full_cmd[1024];
     snprintf(full_cmd, sizeof(full_cmd), "cd '%s' && git %s 2>/dev/null", repo_path, cmd);
 
@@ -37,7 +42,7 @@ static char *run_git_command(const char *repo_path, const char *cmd) {
             }
             result = new_result;
         }
-        strcpy(result + size, buffer);
+        memcpy(result + size, buffer, len);
         size += len;
     }
 
@@ -55,9 +60,18 @@ char *git_find_root(const char *path) {
     /* If path is a file, get its directory */
     struct stat st;
     if (stat(test_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
-        char *dir = dirname(test_path);
+        /* dirname may modify buffer or return static storage - make a copy first */
+        char *path_copy = strdup(test_path);
+        if (!path_copy) {
+            free(test_path);
+            return NULL;
+        }
+        char *dir = dirname(path_copy);
+        char *dir_copy = strdup(dir);
+        free(path_copy);
         free(test_path);
-        test_path = strdup(dir);
+        test_path = dir_copy;
+        if (!test_path) return NULL;
     }
 
     /* Walk up directory tree looking for .git */
@@ -254,18 +268,16 @@ GitDiff *git_get_file_diff(const char *repo_path, const char *filename) {
         } else if (in_hunk && strlen(line) > 0) {
             char marker = line[0];
             if (marker == '+') {
-                /* Added line */
+                /* Added line - exists in new file */
                 if (current_line < (int)num_lines) {
                     diff->line_statuses[current_line] = GIT_ADDED;
                     current_line++;
                 }
             } else if (marker == '-') {
-                /* Deleted line - mark next line as modified */
-                if (current_line < (int)num_lines) {
-                    diff->line_statuses[current_line] = GIT_MODIFIED;
-                }
+                /* Deleted line - doesn't exist in new file, don't mark or advance */
+                /* These lines are in the old version but not in the new version */
             } else if (marker == ' ') {
-                /* Unchanged line */
+                /* Unchanged line - advance position in new file */
                 current_line++;
             }
         }
