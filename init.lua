@@ -1,31 +1,41 @@
 -- OCCE Development Configuration
 -- This file is used when running ./occe from the project directory
 
+-- Load the safe plugin loader first
+local loader = dofile("./plugins/plugin_loader.lua")
+
 -- Load all syntax highlighting plugins
-editor.load_plugin("syntax/lua.lua")
-editor.load_plugin("syntax/c.lua")
-editor.load_plugin("syntax/python.lua")
-editor.load_plugin("syntax/javascript.lua")
-editor.load_plugin("syntax/rust.lua")
-editor.load_plugin("syntax/go.lua")
-editor.load_plugin("syntax/java.lua")
-editor.load_plugin("syntax/ruby.lua")
-editor.load_plugin("syntax/typescript.lua")
-editor.load_plugin("syntax/shell.lua")
-editor.load_plugin("syntax/html.lua")
-editor.load_plugin("syntax/css.lua")
-editor.load_plugin("syntax/json.lua")
-editor.load_plugin("syntax/markdown.lua")
+loader.load_plugins({
+    "syntax/lua.lua",
+    "syntax/c.lua",
+    "syntax/python.lua",
+    "syntax/javascript.lua",
+    "syntax/rust.lua",
+    "syntax/go.lua",
+    "syntax/java.lua",
+    "syntax/ruby.lua",
+    "syntax/typescript.lua",
+    "syntax/shell.lua",
+    "syntax/html.lua",
+    "syntax/css.lua",
+    "syntax/json.lua",
+    "syntax/markdown.lua"
+})
 
 -- Load core plugins
-editor.load_plugin("core.lua")
-editor.load_plugin("search.lua")
-editor.load_plugin("word_navigation.lua")
-editor.load_plugin("git.lua")
-editor.load_plugin("window_commands.lua")
-editor.load_plugin("buffer_list.lua")
-editor.load_plugin("layouts.lua")
-editor.load_plugin("session_manager.lua")
+loader.load_plugins({
+    "core.lua",
+    "search.lua",
+    "word_navigation.lua",
+    "git.lua",
+    "window_commands.lua",
+    "buffer_list.lua",
+    "layouts.lua",
+    "session_manager.lua"
+})
+
+-- Show summary if any plugins failed
+loader.print_summary()
 
 -- Custom functions for development
 function quick_comment()
@@ -37,4 +47,4 @@ function quick_comment()
 end
 
 -- Dev mode startup message
-editor.message("OCCE [DEV MODE] - Using local plugins 2")
+editor.message("OCCE [DEV MODE] - Using local plugins")

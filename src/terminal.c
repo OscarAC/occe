@@ -153,11 +153,15 @@ int terminal_read_key(void) {
         if (nread == -1 && errno != EAGAIN) return -1;
     }
 
+    fprintf(stderr, "DEBUG: terminal_read_key got char %d (0x%02x)\n", c, (unsigned char)c);
+
     if (c == '\x1b') {
         char seq[3];
 
         if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
         if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+        fprintf(stderr, "DEBUG: Got ESC sequence: [%c%c]\n", seq[0], seq[1]);
 
         if (seq[0] == '[') {
             /* Check for SGR mouse event: \x1b[< */
@@ -187,12 +191,22 @@ int terminal_read_key(void) {
                     if (read(STDIN_FILENO, &mod, 1) != 1) return '\x1b';
                     if (read(STDIN_FILENO, &dir, 1) != 1) return '\x1b';
 
+                    fprintf(stderr, "DEBUG: Got escape sequence [1;%cX where X=%c\n", mod, dir);
+
                     if (mod == '5') {  /* Ctrl modifier */
                         switch (dir) {
-                            case 'A': return KEY_CTRL_ARROW_UP;
-                            case 'B': return KEY_CTRL_ARROW_DOWN;
-                            case 'C': return KEY_CTRL_ARROW_RIGHT;
-                            case 'D': return KEY_CTRL_ARROW_LEFT;
+                            case 'A':
+                                fprintf(stderr, "DEBUG: Returning KEY_CTRL_ARROW_UP=%d\n", KEY_CTRL_ARROW_UP);
+                                return KEY_CTRL_ARROW_UP;
+                            case 'B':
+                                fprintf(stderr, "DEBUG: Returning KEY_CTRL_ARROW_DOWN=%d\n", KEY_CTRL_ARROW_DOWN);
+                                return KEY_CTRL_ARROW_DOWN;
+                            case 'C':
+                                fprintf(stderr, "DEBUG: Returning KEY_CTRL_ARROW_RIGHT=%d\n", KEY_CTRL_ARROW_RIGHT);
+                                return KEY_CTRL_ARROW_RIGHT;
+                            case 'D':
+                                fprintf(stderr, "DEBUG: Returning KEY_CTRL_ARROW_LEFT=%d\n", KEY_CTRL_ARROW_LEFT);
+                                return KEY_CTRL_ARROW_LEFT;
                         }
                     }
                 }

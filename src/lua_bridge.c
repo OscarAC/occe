@@ -278,6 +278,7 @@ static int l_editor_bind_key(lua_State *L) {
     int modifiers = luaL_optinteger(L, 2, KMOD_NONE);
     const char *func_name = luaL_checkstring(L, 3);
 
+    fprintf(stderr, "DEBUG: Binding key=%d mod=%d func=%s\n", key, modifiers, func_name);
     keymap_bind(ed->keymap, key, modifiers, func_name);
     return 0;
 }
@@ -306,23 +307,45 @@ static int l_editor_load_plugin(lua_State *L) {
     const char *filename = luaL_checkstring(L, 1);
     char plugin_path[512];
     int result = -1;
+    char last_error[512] = "Plugin file not found";
 
     /* Try 1: Local plugins directory (for development) */
     snprintf(plugin_path, sizeof(plugin_path), "./plugins/%s", filename);
     result = lua_bridge_load_plugin(ed, plugin_path);
 
+    /* Get error message if failed */
+    if (result != 0) {
+        lua_getglobal(L, "_PLUGIN_LOAD_ERROR");
+        if (lua_isstring(L, -1)) {
+            const char *err = lua_tostring(L, -1);
+            snprintf(last_error, sizeof(last_error), "%s", err);
+        }
+        lua_pop(L, 1);
+    }
+
     /* Try 2: User config directory */
     if (result != 0 && ed->config_dir) {
         snprintf(plugin_path, sizeof(plugin_path), "%s/plugins/%s", ed->config_dir, filename);
         result = lua_bridge_load_plugin(ed, plugin_path);
+
+        /* Get error message if failed */
+        if (result != 0) {
+            lua_getglobal(L, "_PLUGIN_LOAD_ERROR");
+            if (lua_isstring(L, -1)) {
+                const char *err = lua_tostring(L, -1);
+                snprintf(last_error, sizeof(last_error), "%s", err);
+            }
+            lua_pop(L, 1);
+        }
     }
 
     if (result == 0) {
         lua_pushboolean(L, 1);
-        return 1;
+        lua_pushnil(L);  /* No error */
+        return 2;
     } else {
         lua_pushboolean(L, 0);
-        lua_pushstring(L, "Failed to load plugin from all locations");
+        lua_pushstring(L, last_error);
         return 2;
     }
 }
@@ -1527,9 +1550,12 @@ int lua_bridge_load_plugin(Editor *ed, const char *filename) {
     lua_State *L = (lua_State *)ed->lua_state;
 
     if (luaL_dofile(L, filename) != LUA_OK) {
-        /* Error occurred */
+        /* Error occurred - store error message in global _PLUGIN_LOAD_ERROR */
         const char *err = lua_tostring(L, -1);
-        (void)err; /* TODO: Display error */
+        if (err) {
+            lua_pushstring(L, err);
+            lua_setglobal(L, "_PLUGIN_LOAD_ERROR");
+        }
         lua_pop(L, 1);
         return -1;
     }

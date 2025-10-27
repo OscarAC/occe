@@ -98,7 +98,7 @@ function M.get_status(repo_path)
     end
 
     local statuses = {}
-    for line in output:gmatch("[^\n]+") then
+    for line in output:gmatch("[^\n]+") do
         if #line > 3 then
             local status = line:sub(2, 2)
             if status == " " then
@@ -277,10 +277,12 @@ function M.setup()
     -- Register gutter renderer
     _G._gutter_renderer = M.render_gutter
 
-    -- Initialize git for current buffer
-    local filename = buffer.get_filename()
-    if filename then
-        M.init_buffer(filename)
+    -- Initialize git for current buffer (if buffer API is available and has filename)
+    if buffer and buffer.get_filename then
+        local success, filename = pcall(buffer.get_filename)
+        if success and filename then
+            M.init_buffer(filename)
+        end
     end
 
     editor.message("Git plugin loaded")
