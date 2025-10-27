@@ -278,7 +278,6 @@ static int l_editor_bind_key(lua_State *L) {
     int modifiers = luaL_optinteger(L, 2, KMOD_NONE);
     const char *func_name = luaL_checkstring(L, 3);
 
-    fprintf(stderr, "DEBUG: Binding key=%d mod=%d func=%s\n", key, modifiers, func_name);
     keymap_bind(ed->keymap, key, modifiers, func_name);
     return 0;
 }
@@ -1532,6 +1531,7 @@ int lua_bridge_init(Editor *ed) {
     register_process_api(L);
     register_terminal_api(L);
     register_window_api(L);
+    register_theme_api(L);
 
     ed->lua_state = L;
     return 0;

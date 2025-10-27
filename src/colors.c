@@ -1,4 +1,5 @@
 #include "colors.h"
+#include "theme.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -19,10 +20,29 @@ ColorPair default_colors[HL_MAX] = {
 };
 
 void colors_init(void) {
-    /* Colors are already initialized statically */
+    /* Initialize theme system which will load all built-in themes */
+    theme_init();
 }
 
 ColorPair colors_get(HighlightType type) {
+    /* Get color from active theme if available, otherwise use defaults */
+    Theme *theme = theme_get_active();
+    if (theme && type >= 0 && type < HL_MAX) {
+        /* Convert ThemeColorPair to ColorPair for backward compatibility */
+        ThemeColorPair tcp = theme->colors[type];
+
+        /* For now, if theme uses RGB colors, we'll need to use the enhanced rendering path */
+        /* This maintains backward compatibility with existing code */
+        if (!tcp.fg.is_rgb && !tcp.bg.is_rgb) {
+            ColorPair cp;
+            cp.fg = tcp.fg.ansi;
+            cp.bg = tcp.bg.ansi;
+            cp.attrs = tcp.attrs;
+            return cp;
+        }
+    }
+
+    /* Fallback to default colors */
     if (type >= 0 && type < HL_MAX) {
         return default_colors[type];
     }
@@ -44,19 +64,19 @@ void colors_to_ansi(ColorPair cp, char *buf, size_t bufsize) {
     pos += snprintf(buf + pos, bufsize - pos, "\x1b[");
 
     /* Add attributes */
-    if (cp.attrs & ATTR_BOLD) {
+    if (cp.attrs & (1 << ATTR_BOLD)) {
         pos += snprintf(buf + pos, bufsize - pos, "1;");
     }
-    if (cp.attrs & ATTR_DIM) {
+    if (cp.attrs & (1 << ATTR_DIM)) {
         pos += snprintf(buf + pos, bufsize - pos, "2;");
     }
-    if (cp.attrs & ATTR_ITALIC) {
+    if (cp.attrs & (1 << ATTR_ITALIC)) {
         pos += snprintf(buf + pos, bufsize - pos, "3;");
     }
-    if (cp.attrs & ATTR_UNDERLINE) {
+    if (cp.attrs & (1 << ATTR_UNDERLINE)) {
         pos += snprintf(buf + pos, bufsize - pos, "4;");
     }
-    if (cp.attrs & ATTR_REVERSE) {
+    if (cp.attrs & (1 << ATTR_REVERSE)) {
         pos += snprintf(buf + pos, bufsize - pos, "7;");
     }
 
@@ -89,4 +109,15 @@ void colors_to_ansi(ColorPair cp, char *buf, size_t bufsize) {
 
     /* Close escape sequence */
     snprintf(buf + pos, bufsize - pos, "m");
+}
+
+/* New function for theme-aware rendering with TrueColor support */
+void colors_to_ansi_themed(HighlightType type, char *buf, size_t bufsize) {
+    Theme *theme = theme_get_active();
+    if (theme && type >= 0 && type < HL_MAX) {
+        theme_colorpair_to_ansi(theme->colors[type], buf, bufsize);
+    } else {
+        ColorPair cp = colors_get(type);
+        colors_to_ansi(cp, buf, bufsize);
+    }
 }

@@ -3,6 +3,9 @@
 
 #include "occe.h"
 
+/* Forward declaration for Lua state */
+typedef struct lua_State lua_State;
+
 /* Initialize Lua VM and register C functions */
 int lua_bridge_init(Editor *ed);
 
@@ -32,5 +35,8 @@ bool lua_bridge_call_window_key_handler(Editor *ed, Window *win, int key);
 
 /* Trigger window events */
 void lua_bridge_trigger_window_event(Editor *ed, const char *event_name, int win_id, int prev_win_id);
+
+/* Register theme API (defined in lua_theme_api.c) */
+void register_theme_api(lua_State *L);
 
 #endif /* LUA_BRIDGE_H */

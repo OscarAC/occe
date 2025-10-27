@@ -75,4 +75,7 @@ void colors_set(HighlightType type, Color fg, Color bg, uint8_t attrs);
 /* Generate ANSI escape sequence for color pair */
 void colors_to_ansi(ColorPair cp, char *buf, size_t bufsize);
 
+/* Generate ANSI escape sequence using active theme (supports TrueColor) */
+void colors_to_ansi_themed(HighlightType type, char *buf, size_t bufsize);
+
 #endif /* COLORS_H */

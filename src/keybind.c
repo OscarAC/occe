@@ -72,14 +72,10 @@ void keymap_unbind(KeyMap *map, int key, int modifiers) {
 int keymap_execute(KeyMap *map, Editor *ed, int key, int modifiers) {
     if (!map || !ed) return -1;
 
-    fprintf(stderr, "DEBUG: keymap_execute called with key=%d mod=%d\n", key, modifiers);
-
     KeyBinding *kb = map->bindings;
     while (kb) {
-        fprintf(stderr, "DEBUG: Checking binding key=%d mod=%d func=%s\n", kb->key, kb->modifiers, kb->lua_function);
         if (kb->key == key && kb->modifiers == modifiers) {
             /* Execute the Lua function */
-            fprintf(stderr, "DEBUG: Executing function: %s\n", kb->lua_function);
             if (lua_bridge_call(ed, kb->lua_function) == 0) {
                 return 0; /* Success */
             }

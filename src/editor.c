@@ -512,7 +512,6 @@ static void editor_process_keypress(Editor *ed, int key) {
     }
 
     /* Check for custom keybindings first */
-    fprintf(stderr, "DEBUG: editor_process_keypress key=%d\n", key);
     if (ed->keymap && keymap_execute(ed->keymap, ed, key, KMOD_NONE) == 0) {
         return;  /* Keybinding handled it */
     }
