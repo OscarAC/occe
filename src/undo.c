@@ -158,17 +158,11 @@ void undo_push_delete_line(UndoStack *stack, int x, int y, const char *line, siz
 /* Forward declarations for buffer operations without undo recording */
 static void buffer_insert_char_raw(Buffer *buf, int c);
 static void buffer_delete_char_raw(Buffer *buf, int at_x, int at_y);
-static void buffer_insert_newline_raw(Buffer *buf, int at_x, int at_y);
-static void buffer_delete_line_raw(Buffer *buf, int at_y, char **deleted_data, size_t *deleted_len);
 
 int undo_apply(Buffer *buf, UndoStack *stack) {
     if (!buf || !stack || !stack->current) return -1;
 
     UndoAction *action = stack->current;
-
-    /* Save current cursor position */
-    int saved_x = buf->cursor_x;
-    int saved_y = buf->cursor_y;
 
     /* Move cursor to action position */
     buf->cursor_x = action->cursor_x;
@@ -220,10 +214,6 @@ int redo_apply(Buffer *buf, UndoStack *stack) {
     }
 
     if (!action) return -1;  /* Nothing to redo */
-
-    /* Save current cursor position */
-    int saved_x = buf->cursor_x;
-    int saved_y = buf->cursor_y;
 
     /* Move cursor to action position */
     buf->cursor_x = action->cursor_x;
@@ -319,17 +309,3 @@ static void buffer_delete_char_raw(Buffer *buf, int at_x, int at_y) {
     buf->modified = true;
 }
 
-static void buffer_insert_newline_raw(Buffer *buf, int at_x, int at_y) {
-    /* TODO: Implement if needed */
-    (void)buf;
-    (void)at_x;
-    (void)at_y;
-}
-
-static void buffer_delete_line_raw(Buffer *buf, int at_y, char **deleted_data, size_t *deleted_len) {
-    /* TODO: Implement if needed */
-    (void)buf;
-    (void)at_y;
-    (void)deleted_data;
-    (void)deleted_len;
-}

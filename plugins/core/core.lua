@@ -1,8 +1,31 @@
 -- Core OCCE plugin
--- This plugin demonstrates the Lua API and provides some utilities
+-- This plugin sets up essential key bindings and provides utilities
 
 -- Welcome message
 print("OCCE Core Plugin Loaded")
+
+-- ============================================================================
+-- Key Bindings
+-- ============================================================================
+
+-- File operations
+editor.bind_key(editor.KEY.CTRL_S, editor.KMOD.NONE, "editor.save")
+editor.bind_key(editor.KEY.CTRL_Q, editor.KMOD.NONE, "editor.quit")
+
+-- Undo/Redo
+editor.bind_key(editor.KEY.CTRL_Z, editor.KMOD.NONE, "editor.undo")
+editor.bind_key(editor.KEY.CTRL_R, editor.KMOD.NONE, "editor.redo")
+
+-- Clipboard
+editor.bind_key(editor.KEY.CTRL_C, editor.KMOD.NONE, "editor.copy")
+editor.bind_key(editor.KEY.CTRL_V, editor.KMOD.NONE, "editor.paste")
+
+-- Tab navigation
+editor.bind_key(editor.KEY.CTRL_PAGE_DOWN, editor.KMOD.NONE, "editor.tabnext")
+editor.bind_key(editor.KEY.CTRL_PAGE_UP, editor.KMOD.NONE, "editor.tabprev")
+
+-- Window navigation
+editor.bind_key(editor.KEY.CTRL_W, editor.KMOD.NONE, "editor.window_next")
 
 -- Helper function to insert text at cursor
 function insert_text(text)

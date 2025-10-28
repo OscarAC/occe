@@ -7,6 +7,7 @@
 #include "search.h"
 #include "syntax.h"
 #include "colors.h"
+#include "undo.h"
 #include <lua.h>
 #include <lualib.h>
 #include <lauxlib.h>
@@ -267,6 +268,531 @@ static int l_editor_message(lua_State *L) {
     return 0;
 }
 
+/* Lua API: editor.set_tab_width(width) */
+static int l_editor_set_tab_width(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    int width = luaL_checkinteger(L, 1);
+    if (width < 1 || width > 16) {
+        return luaL_error(L, "Tab width must be between 1 and 16");
+    }
+
+    ed->tab_width = width;
+    return 0;
+}
+
+/* Lua API: editor.set_use_spaces(bool) */
+static int l_editor_set_use_spaces(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    ed->use_spaces = lua_toboolean(L, 1);
+    return 0;
+}
+
+/* Lua API: editor.save() - Save current buffer */
+static int l_editor_save(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return luaL_error(L, "No active buffer");
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    if (buf->filename) {
+        if (buffer_save(buf) == 0) {
+            editor_set_status(ed, "File saved");
+            lua_pushboolean(L, 1);
+        } else {
+            editor_set_status(ed, "Error saving file");
+            lua_pushboolean(L, 0);
+        }
+    } else {
+        editor_set_status(ed, "No filename");
+        lua_pushboolean(L, 0);
+    }
+    return 1;
+}
+
+/* Lua API: editor.open(filename) - Open a file */
+static int l_editor_open(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    const char *filename = luaL_checkstring(L, 1);
+
+    Buffer *new_buf = buffer_create();
+    if (new_buf) {
+        if (buffer_open(new_buf, filename) == -1) {
+            /* File doesn't exist, create new with filename */
+            new_buf->filename = strdup(filename);
+            buffer_append_row(new_buf, "", 0);
+        }
+
+        /* Add buffer to editor */
+        Buffer **new_buffers = realloc(ed->buffers, sizeof(Buffer *) * (ed->buffer_count + 1));
+        if (new_buffers) {
+            ed->buffers = new_buffers;
+            ed->buffers[ed->buffer_count++] = new_buf;
+
+            /* Switch current window to this buffer */
+            if (ed->active_window) {
+                ed->active_window->content.buffer = new_buf;
+            }
+
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Opened: %s", filename);
+            editor_set_status(ed, msg);
+            lua_pushboolean(L, 1);
+            return 1;
+        }
+    }
+
+    editor_set_status(ed, "Failed to open file");
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/* Lua API: editor.tabnew(filename) - Create new tab with optional file */
+static int l_editor_tabnew(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    const char *filename = lua_tostring(L, 1);  /* Optional */
+
+    Buffer *new_buf = buffer_create();
+    if (new_buf) {
+        if (filename) {
+            /* Try to open file */
+            if (buffer_open(new_buf, filename) == -1) {
+                new_buf->filename = strdup(filename);
+                buffer_append_row(new_buf, "", 0);
+            }
+        } else {
+            buffer_append_row(new_buf, "", 0);
+        }
+
+        /* Add buffer */
+        Buffer **new_buffers = realloc(ed->buffers, sizeof(Buffer *) * (ed->buffer_count + 1));
+        if (!new_buffers) {
+            buffer_destroy(new_buf);
+            return 0;
+        }
+        ed->buffers = new_buffers;
+        ed->buffers[ed->buffer_count++] = new_buf;
+
+        /* Create window for the new tab */
+        int win_y = 0, win_height = ed->term->rows - 1;
+        Window *new_win = window_create_leaf(new_buf, 0, win_y, ed->term->cols, win_height);
+        if (new_win) {
+            new_win->id = ed->next_window_id++;
+
+            /* Create new tab group */
+            TabGroup *new_tab = tabgroup_create(filename ? filename : "Tab", new_win);
+            if (new_tab) {
+                new_tab->id = ed->next_tab_id++;
+
+                /* Insert at end of tab list */
+                if (ed->active_tab) {
+                    TabGroup *last = ed->tab_groups;
+                    while (last->next) last = last->next;
+                    last->next = new_tab;
+                } else {
+                    ed->tab_groups = new_tab;
+                }
+
+                /* Switch to new tab */
+                ed->active_tab = new_tab;
+                ed->root_window = new_tab->root_window;
+                ed->active_window = new_tab->active_window;
+
+                editor_set_status(ed, "New tab created");
+                lua_pushboolean(L, 1);
+                return 1;
+            }
+        }
+    }
+
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/* Lua API: editor.tabnext() - Go to next tab */
+static int l_editor_tabnext(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->tab_groups || !ed->active_tab) {
+        return 0;
+    }
+
+    if (ed->active_tab->next) {
+        ed->active_tab = ed->active_tab->next;
+    } else {
+        /* Wrap around */
+        ed->active_tab = ed->tab_groups;
+    }
+
+    ed->root_window = ed->active_tab->root_window;
+    ed->active_window = ed->active_tab->active_window;
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Tab: %s", ed->active_tab->name);
+    editor_set_status(ed, msg);
+    return 0;
+}
+
+/* Lua API: editor.tabprev() - Go to previous tab */
+static int l_editor_tabprev(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->tab_groups || !ed->active_tab) {
+        return 0;
+    }
+
+    /* Find previous tab */
+    TabGroup *prev = NULL;
+    TabGroup *current = ed->tab_groups;
+
+    while (current && current != ed->active_tab) {
+        prev = current;
+        current = current->next;
+    }
+
+    if (prev) {
+        ed->active_tab = prev;
+    } else {
+        /* Wrap around to last */
+        TabGroup *last = ed->tab_groups;
+        while (last->next) last = last->next;
+        ed->active_tab = last;
+    }
+
+    ed->root_window = ed->active_tab->root_window;
+    ed->active_window = ed->active_tab->active_window;
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Tab: %s", ed->active_tab->name);
+    editor_set_status(ed, msg);
+    return 0;
+}
+
+/* Lua API: editor.tabclose() - Close current tab */
+static int l_editor_tabclose(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->tab_groups || !ed->active_tab) {
+        return 0;
+    }
+
+    /* Count tabs */
+    int tab_count = 0;
+    TabGroup *t = ed->tab_groups;
+    while (t) {
+        tab_count++;
+        t = t->next;
+    }
+
+    if (tab_count == 1) {
+        editor_set_status(ed, "Cannot close last tab");
+        return 0;
+    }
+
+    /* Find previous tab in list */
+    TabGroup *prev = NULL;
+    TabGroup *current = ed->tab_groups;
+
+    while (current && current != ed->active_tab) {
+        prev = current;
+        current = current->next;
+    }
+
+    /* Determine which tab to switch to */
+    TabGroup *next_active = ed->active_tab->next;
+    if (!next_active) {
+        next_active = prev ? prev : ed->tab_groups;
+    }
+
+    /* Remove from list */
+    if (prev) {
+        prev->next = ed->active_tab->next;
+    } else {
+        ed->tab_groups = ed->active_tab->next;
+    }
+
+    TabGroup *to_destroy = ed->active_tab;
+
+    /* Switch to next tab */
+    ed->active_tab = next_active;
+    ed->root_window = ed->active_tab->root_window;
+    ed->active_window = ed->active_tab->active_window;
+
+    /* Destroy the old tab */
+    tabgroup_destroy(to_destroy);
+
+    editor_set_status(ed, "Tab closed");
+    return 0;
+}
+
+/* Lua API: editor.split(filename) - Horizontal split with optional file */
+static int l_editor_split(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    const char *filename = lua_tostring(L, 1);  /* Optional */
+
+    Buffer *new_buf = buffer_create();
+    if (new_buf) {
+        if (filename) {
+            if (buffer_open(new_buf, filename) == -1) {
+                new_buf->filename = strdup(filename);
+                buffer_append_row(new_buf, "", 0);
+            }
+        } else if (ed->active_window && ed->active_window->content.buffer) {
+            /* Copy content from current buffer */
+            Buffer *src = ed->active_window->content.buffer;
+            for (size_t i = 0; i < src->num_rows; i++) {
+                buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
+            }
+        } else {
+            buffer_append_row(new_buf, "", 0);
+        }
+
+        /* Add buffer */
+        Buffer **new_buffers = realloc(ed->buffers, sizeof(Buffer *) * (ed->buffer_count + 1));
+        if (new_buffers) {
+            ed->buffers = new_buffers;
+            ed->buffers[ed->buffer_count++] = new_buf;
+
+            /* Split window */
+            if (ed->active_window && ed->active_window->type == WINDOW_LEAF) {
+                Window *current = ed->active_window;
+                int x = current->x;
+                int y = current->y;
+                int w = current->width;
+                int h = current->height;
+                Buffer *old_buffer = current->content.buffer;
+
+                Window *win1 = window_create_leaf(old_buffer, 0, 0, 0, 0);
+                Window *win2 = window_create_leaf(new_buf, 0, 0, 0, 0);
+
+                if (win1 && win2) {
+                    current->type = WINDOW_SPLIT_H;
+                    current->content.buffer = NULL;
+                    current->left = win1;
+                    current->right = win2;
+                    current->split_ratio = 0.5f;
+
+                    window_resize(current, x, y, w, h);
+                    ed->active_window = win2;
+
+                    if (ed->active_tab) {
+                        ed->active_tab->active_window = win2;
+                    }
+
+                    editor_set_status(ed, "Window split horizontally");
+                    lua_pushboolean(L, 1);
+                    return 1;
+                }
+            }
+        }
+    }
+
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/* Lua API: editor.vsplit(filename) - Vertical split with optional file */
+static int l_editor_vsplit(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed) {
+        return luaL_error(L, "No editor");
+    }
+
+    const char *filename = lua_tostring(L, 1);  /* Optional */
+
+    Buffer *new_buf = buffer_create();
+    if (new_buf) {
+        if (filename) {
+            if (buffer_open(new_buf, filename) == -1) {
+                new_buf->filename = strdup(filename);
+                buffer_append_row(new_buf, "", 0);
+            }
+        } else if (ed->active_window && ed->active_window->content.buffer) {
+            /* Copy content from current buffer */
+            Buffer *src = ed->active_window->content.buffer;
+            for (size_t i = 0; i < src->num_rows; i++) {
+                buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
+            }
+        } else {
+            buffer_append_row(new_buf, "", 0);
+        }
+
+        /* Add buffer */
+        Buffer **new_buffers = realloc(ed->buffers, sizeof(Buffer *) * (ed->buffer_count + 1));
+        if (new_buffers) {
+            ed->buffers = new_buffers;
+            ed->buffers[ed->buffer_count++] = new_buf;
+
+            /* Split window */
+            if (ed->active_window && ed->active_window->type == WINDOW_LEAF) {
+                Window *current = ed->active_window;
+                int x = current->x;
+                int y = current->y;
+                int w = current->width;
+                int h = current->height;
+                Buffer *old_buffer = current->content.buffer;
+
+                Window *win1 = window_create_leaf(old_buffer, 0, 0, 0, 0);
+                Window *win2 = window_create_leaf(new_buf, 0, 0, 0, 0);
+
+                if (win1 && win2) {
+                    current->type = WINDOW_SPLIT_V;
+                    current->content.buffer = NULL;
+                    current->left = win1;
+                    current->right = win2;
+                    current->split_ratio = 0.5f;
+
+                    window_resize(current, x, y, w, h);
+                    ed->active_window = win2;
+
+                    if (ed->active_tab) {
+                        ed->active_tab->active_window = win2;
+                    }
+
+                    editor_set_status(ed, "Window split vertically");
+                    lua_pushboolean(L, 1);
+                    return 1;
+                }
+            }
+        }
+    }
+
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/* Lua API: editor.window_next() - Go to next window */
+static int l_editor_window_next(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->root_window || !ed->active_window) {
+        return 0;
+    }
+
+    Window *next = window_get_next_leaf(ed->root_window, ed->active_window);
+    if (next && next != ed->active_window) {
+        ed->active_window = next;
+        if (ed->active_tab) {
+            ed->active_tab->active_window = next;
+        }
+        editor_set_status(ed, "Next window");
+    }
+    return 0;
+}
+
+/* Lua API: editor.window_prev() - Go to previous window */
+static int l_editor_window_prev(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->root_window || !ed->active_window) {
+        return 0;
+    }
+
+    Window *prev = window_get_prev_leaf(ed->root_window, ed->active_window);
+    if (prev && prev != ed->active_window) {
+        ed->active_window = prev;
+        if (ed->active_tab) {
+            ed->active_tab->active_window = prev;
+        }
+        editor_set_status(ed, "Previous window");
+    }
+    return 0;
+}
+
+/* Lua API: editor.undo() - Undo last change */
+static int l_editor_undo(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return 0;
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    if (buf->undo_stack) {
+        if (undo_apply(buf, buf->undo_stack) == 0) {
+            editor_set_status(ed, "Undo");
+        } else {
+            editor_set_status(ed, "Nothing to undo");
+        }
+    }
+    return 0;
+}
+
+/* Lua API: editor.redo() - Redo last undone change */
+static int l_editor_redo(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return 0;
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    if (buf->undo_stack) {
+        if (redo_apply(buf, buf->undo_stack) == 0) {
+            editor_set_status(ed, "Redo");
+        } else {
+            editor_set_status(ed, "Nothing to redo");
+        }
+    }
+    return 0;
+}
+
+/* Lua API: editor.copy() - Copy selection to clipboard */
+static int l_editor_copy(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return 0;
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    if (buf->has_selection) {
+        size_t len;
+        char *text = buffer_get_selected_text(buf, &len);
+        if (text) {
+            if (ed->clipboard) free(ed->clipboard);
+            ed->clipboard = text;
+            ed->clipboard_len = len;
+            editor_set_status(ed, "Copied");
+            buf->has_selection = false;
+            lua_pushboolean(L, 1);
+            return 1;
+        }
+    }
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/* Lua API: editor.paste() - Paste from clipboard */
+static int l_editor_paste(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return 0;
+    }
+
+    if (ed->clipboard && ed->clipboard_len > 0) {
+        Buffer *buf = ed->active_window->content.buffer;
+        buffer_paste_text(buf, ed->clipboard, ed->clipboard_len);
+        editor_set_status(ed, "Pasted");
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+    return 1;
+}
+
 /* Lua API: editor.bind_key(key, modifiers, function_name) */
 static int l_editor_bind_key(lua_State *L) {
     Editor *ed = get_editor(L);
@@ -464,6 +990,54 @@ static void register_editor_api(lua_State *L) {
     lua_pushcfunction(L, l_editor_message);
     lua_setfield(L, -2, "message");
 
+    lua_pushcfunction(L, l_editor_set_tab_width);
+    lua_setfield(L, -2, "set_tab_width");
+
+    lua_pushcfunction(L, l_editor_set_use_spaces);
+    lua_setfield(L, -2, "set_use_spaces");
+
+    lua_pushcfunction(L, l_editor_save);
+    lua_setfield(L, -2, "save");
+
+    lua_pushcfunction(L, l_editor_open);
+    lua_setfield(L, -2, "open");
+
+    lua_pushcfunction(L, l_editor_tabnew);
+    lua_setfield(L, -2, "tabnew");
+
+    lua_pushcfunction(L, l_editor_tabnext);
+    lua_setfield(L, -2, "tabnext");
+
+    lua_pushcfunction(L, l_editor_tabprev);
+    lua_setfield(L, -2, "tabprev");
+
+    lua_pushcfunction(L, l_editor_tabclose);
+    lua_setfield(L, -2, "tabclose");
+
+    lua_pushcfunction(L, l_editor_split);
+    lua_setfield(L, -2, "split");
+
+    lua_pushcfunction(L, l_editor_vsplit);
+    lua_setfield(L, -2, "vsplit");
+
+    lua_pushcfunction(L, l_editor_window_next);
+    lua_setfield(L, -2, "window_next");
+
+    lua_pushcfunction(L, l_editor_window_prev);
+    lua_setfield(L, -2, "window_prev");
+
+    lua_pushcfunction(L, l_editor_undo);
+    lua_setfield(L, -2, "undo");
+
+    lua_pushcfunction(L, l_editor_redo);
+    lua_setfield(L, -2, "redo");
+
+    lua_pushcfunction(L, l_editor_copy);
+    lua_setfield(L, -2, "copy");
+
+    lua_pushcfunction(L, l_editor_paste);
+    lua_setfield(L, -2, "paste");
+
     lua_pushcfunction(L, l_editor_bind_key);
     lua_setfield(L, -2, "bind_key");
 
@@ -487,6 +1061,26 @@ static void register_editor_api(lua_State *L) {
 
     /* Key code constants */
     lua_newtable(L);
+
+    /* Control keys */
+    lua_pushinteger(L, KEY_CTRL_C);
+    lua_setfield(L, -2, "CTRL_C");
+    lua_pushinteger(L, KEY_CTRL_D);
+    lua_setfield(L, -2, "CTRL_D");
+    lua_pushinteger(L, KEY_CTRL_Q);
+    lua_setfield(L, -2, "CTRL_Q");
+    lua_pushinteger(L, KEY_CTRL_R);
+    lua_setfield(L, -2, "CTRL_R");
+    lua_pushinteger(L, KEY_CTRL_S);
+    lua_setfield(L, -2, "CTRL_S");
+    lua_pushinteger(L, KEY_CTRL_V);
+    lua_setfield(L, -2, "CTRL_V");
+    lua_pushinteger(L, KEY_CTRL_W);
+    lua_setfield(L, -2, "CTRL_W");
+    lua_pushinteger(L, KEY_CTRL_Z);
+    lua_setfield(L, -2, "CTRL_Z");
+
+    /* Arrow keys with Ctrl */
     lua_pushinteger(L, KEY_CTRL_ARROW_LEFT);
     lua_setfield(L, -2, "CTRL_ARROW_LEFT");
     lua_pushinteger(L, KEY_CTRL_ARROW_RIGHT);
@@ -495,6 +1089,14 @@ static void register_editor_api(lua_State *L) {
     lua_setfield(L, -2, "CTRL_ARROW_UP");
     lua_pushinteger(L, KEY_CTRL_ARROW_DOWN);
     lua_setfield(L, -2, "CTRL_ARROW_DOWN");
+
+    /* Page Up/Down with Ctrl */
+    lua_pushinteger(L, KEY_CTRL_PAGE_UP);
+    lua_setfield(L, -2, "CTRL_PAGE_UP");
+    lua_pushinteger(L, KEY_CTRL_PAGE_DOWN);
+    lua_setfield(L, -2, "CTRL_PAGE_DOWN");
+
+    /* Arrow keys */
     lua_pushinteger(L, KEY_ARROW_LEFT);
     lua_setfield(L, -2, "ARROW_LEFT");
     lua_pushinteger(L, KEY_ARROW_RIGHT);
@@ -503,6 +1105,7 @@ static void register_editor_api(lua_State *L) {
     lua_setfield(L, -2, "ARROW_UP");
     lua_pushinteger(L, KEY_ARROW_DOWN);
     lua_setfield(L, -2, "ARROW_DOWN");
+
     lua_setfield(L, -2, "KEY");
 
     lua_setglobal(L, "editor");
@@ -711,12 +1314,8 @@ static int l_window_get_all(lua_State *L) {
         return 1;
     }
 
-    /* Collect all leaf windows */
-    Window *leaves[256];
-    size_t count = 0;
-
-    /* Helper to collect leaves - we'll use the existing window_collect_leaves logic */
     /* For now, just return the current window */
+    /* TODO: Implement full window collection if needed */
     lua_newtable(L);
     lua_pushinteger(L, ed->active_window->id);
     lua_rawseti(L, -2, 1);

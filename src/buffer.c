@@ -380,16 +380,15 @@ BracketMatch buffer_find_matching_bracket(Buffer *buf) {
     char c = row->data[buf->cursor_x];
     char match_char;
     int direction;  /* 1 for forward, -1 for backward */
-    bool is_opening;
 
     /* Determine bracket type and direction */
     switch (c) {
-        case '(': match_char = ')'; direction = 1; is_opening = true; break;
-        case ')': match_char = '('; direction = -1; is_opening = false; break;
-        case '{': match_char = '}'; direction = 1; is_opening = true; break;
-        case '}': match_char = '{'; direction = -1; is_opening = false; break;
-        case '[': match_char = ']'; direction = 1; is_opening = true; break;
-        case ']': match_char = '['; direction = -1; is_opening = false; break;
+        case '(': match_char = ')'; direction = 1; break;
+        case ')': match_char = '('; direction = -1; break;
+        case '{': match_char = '}'; direction = 1; break;
+        case '}': match_char = '{'; direction = -1; break;
+        case '[': match_char = ']'; direction = 1; break;
+        case ']': match_char = '['; direction = -1; break;
         default:
             return result;  /* Not on a bracket */
     }

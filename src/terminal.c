@@ -181,6 +181,16 @@ int terminal_read_key(void) {
                         case '7': return KEY_HOME;
                         case '8': return KEY_END;
                     }
+                } else if (seq[2] == ';') {
+                    /* Check for Ctrl+PageUp/PageDown: \x1b[5;5~ or \x1b[6;5~ */
+                    char mod, term;
+                    if (read(STDIN_FILENO, &mod, 1) != 1) return '\x1b';
+                    if (read(STDIN_FILENO, &term, 1) != 1) return '\x1b';
+
+                    if (mod == '5' && term == '~') {  /* Ctrl modifier */
+                        if (seq[1] == '5') return KEY_CTRL_PAGE_UP;
+                        if (seq[1] == '6') return KEY_CTRL_PAGE_DOWN;
+                    }
                 } else if (seq[1] == '1' && seq[2] == ';') {
                     /* Read modifier and direction: \x1b[1;5X */
                     char mod, dir;

@@ -1,31 +1,94 @@
 # OCCE Plugins
 
-This directory contains Lua plugins for OCCE.
+This directory contains plugins that extend OCCE's functionality. All plugins are written in Lua.
 
-## Available Plugins
+## Directory Structure
 
-### core.lua
-Core utility functions for OCCE.
+```
+plugins/
+├── core/               # Essential functionality
+│   ├── core.lua       # Core key bindings (Ctrl+S, Ctrl+Z, etc.)
+│   └── plugin_loader.lua  # Safe plugin loading system
+├── features/          # Optional features
+│   ├── buffer_list.lua    # Buffer management
+│   ├── git.lua           # Git integration
+│   ├── keybindings.lua   # Additional key bindings
+│   ├── layouts.lua       # Window layout management
+│   ├── search.lua        # Search functionality
+│   ├── session_manager.lua # Session persistence
+│   ├── themes.lua        # Theme management
+│   ├── window_commands.lua # Window manipulation
+│   └── word_navigation.lua # Word-based navigation
+└── syntax/            # Syntax highlighting
+    ├── c.lua
+    ├── lua.lua
+    ├── python.lua
+    └── ... (14 languages total)
+```
 
-Functions:
-- `insert_text(text)` - Insert text at cursor position
-- `duplicate_line()` - Duplicate the current line
-- `delete_line()` - Delete the current line
-- `buffer_info()` - Display buffer information
+## Core Plugins
 
-### hello.lua
-Example plugin demonstrating basic functionality.
+These are loaded by default and provide essential functionality:
 
-Functions:
-- `say_hello()` - Insert a greeting message
-- `insert_timestamp()` - Insert current timestamp
-- `insert_separator()` - Insert a separator line
+- **core.lua**: Defines all basic key bindings (save, quit, undo, redo, copy, paste, tab navigation)
+- **plugin_loader.lua**: Provides safe plugin loading with error handling
 
-## Creating Plugins
+## Feature Plugins
 
-Plugins are Lua scripts that can call OCCE's C API:
+Optional plugins that can be enabled/disabled in `init.lua`:
+
+- **search.lua**: Buffer search functionality
+- **word_navigation.lua**: Word-based cursor movement
+- **git.lua**: Git status integration
+- **window_commands.lua**: Advanced window management
+- **buffer_list.lua**: Buffer list and switching
+- **layouts.lua**: Predefined window layouts
+- **session_manager.lua**: Save and restore editing sessions
+
+## Syntax Plugins
+
+Syntax highlighting for various programming languages. Each file defines keywords, operators, and highlighting rules for a specific language.
+
+## Creating Custom Plugins
+
+### Editor API
+
+```lua
+-- File operations
+editor.save()              -- Save current buffer
+editor.open(filename)      -- Open a file
+editor.quit()              -- Quit editor
+
+-- Editing
+editor.undo()              -- Undo last change
+editor.redo()              -- Redo last undone change
+editor.copy()              -- Copy selection
+editor.paste()             -- Paste from clipboard
+
+-- Tabs
+editor.tabnew([filename])  -- Create new tab
+editor.tabnext()           -- Next tab
+editor.tabprev()           -- Previous tab
+editor.tabclose()          -- Close current tab
+
+-- Windows/Splits
+editor.split([filename])   -- Horizontal split
+editor.vsplit([filename])  -- Vertical split
+editor.window_next()       -- Next window
+editor.window_prev()       -- Previous window
+
+-- Settings
+editor.set_tab_width(n)    -- Set tab width
+editor.set_use_spaces(bool)-- Use spaces instead of tabs
+editor.message(str)        -- Display status message
+
+-- Key bindings
+editor.bind_key(key, modifiers, function_name)
+editor.unbind_key(key, modifiers)
+```
 
 ### Buffer API
+
 ```lua
 -- Insert operations
 buffer.insert_char(char_code)
@@ -45,25 +108,48 @@ local count = buffer.get_line_count()
 
 -- Save buffer
 local success = buffer.save()
+
+-- Search and replace
+local result = buffer.search(query)
+local count = buffer.replace(search, replace, all)
 ```
 
-### Editor API
-```lua
--- Quit editor
-editor.quit()
+### Key Constants
 
--- Display message
-editor.message("Hello!")
+```lua
+editor.KEY.CTRL_C, CTRL_D, CTRL_Q, CTRL_R, CTRL_S, CTRL_V, CTRL_W, CTRL_Z
+editor.KEY.CTRL_ARROW_LEFT, CTRL_ARROW_RIGHT, CTRL_ARROW_UP, CTRL_ARROW_DOWN
+editor.KEY.CTRL_PAGE_UP, CTRL_PAGE_DOWN
+editor.KEY.ARROW_LEFT, ARROW_RIGHT, ARROW_UP, ARROW_DOWN
+
+editor.KMOD.NONE, CTRL, ALT, SHIFT
+```
+
+### Example Plugin
+
+```lua
+-- my_plugin.lua
+function save_and_quit()
+    editor.save()
+    editor.quit()
+end
+
+-- Bind to Ctrl+X
+editor.bind_key(string.byte('x'), editor.KMOD.CTRL, "save_and_quit")
+
+editor.message("My Plugin Loaded")
 ```
 
 ## Loading Plugins
 
-Plugins can be loaded:
-1. At startup (future feature)
-2. Via command mode (future feature)
-3. Programmatically from other plugins
+Add your plugin to `init.lua`:
 
-Example:
 ```lua
-dofile("plugins/core.lua")
+local loader = dofile("./plugins/core/plugin_loader.lua")
+
+loader.load_plugins({
+    "features/my_plugin.lua"
+})
 ```
+
+The plugin loader provides automatic error handling and will report any issues without crashing the editor.

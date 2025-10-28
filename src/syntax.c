@@ -90,10 +90,6 @@ Syntax *syntax_find_by_filename(const char *filename) {
     return NULL;
 }
 
-static bool is_separator(int c) {
-    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];{}:", c) != NULL;
-}
-
 static void add_segment(HighlightedLine *hl, int start, int end, HighlightType type) {
     if (hl->num_segments >= hl->capacity) {
         size_t new_capacity = hl->capacity == 0 ? 16 : hl->capacity * 2;

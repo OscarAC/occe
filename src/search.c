@@ -42,7 +42,7 @@ SearchResult *buffer_search(Buffer *buf, const char *query, int start_row, int s
             BufferRow *r = &buf->rows[row];
 
             /* Search backwards in the current line */
-            int search_col = (row == start_row) ? col : r->size;
+            int search_col = (row == start_row) ? col : (int)r->size;
 
             for (int c = search_col - 1; c >= 0; c--) {
                 if (c + query_len <= r->size) {

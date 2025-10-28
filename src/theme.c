@@ -121,27 +121,25 @@ ThemeColor theme_hex(const char *hex_string) {
 }
 
 void theme_color_to_ansi(ThemeColor tc, char *buf, size_t bufsize, bool foreground) {
-    int pos = 0;
-
     if (tc.is_rgb) {
         /* TrueColor (24-bit RGB): ESC[38;2;R;G;Bm or ESC[48;2;R;G;Bm */
         if (foreground) {
-            pos = snprintf(buf, bufsize, "\x1b[38;2;%d;%d;%dm", tc.rgb.r, tc.rgb.g, tc.rgb.b);
+            snprintf(buf, bufsize, "\x1b[38;2;%d;%d;%dm", tc.rgb.r, tc.rgb.g, tc.rgb.b);
         } else {
-            pos = snprintf(buf, bufsize, "\x1b[48;2;%d;%d;%dm", tc.rgb.r, tc.rgb.g, tc.rgb.b);
+            snprintf(buf, bufsize, "\x1b[48;2;%d;%d;%dm", tc.rgb.r, tc.rgb.g, tc.rgb.b);
         }
     } else {
         /* ANSI color */
         if (tc.ansi == COLOR_DEFAULT) {
-            pos = snprintf(buf, bufsize, "\x1b[%dm", foreground ? 39 : 49);
+            snprintf(buf, bufsize, "\x1b[%dm", foreground ? 39 : 49);
         } else if (tc.ansi >= COLOR_BRIGHT_BLACK) {
             /* Bright colors (90-97 for fg, 100-107 for bg) */
             int code = foreground ? (90 + (tc.ansi - COLOR_BRIGHT_BLACK)) : (100 + (tc.ansi - COLOR_BRIGHT_BLACK));
-            pos = snprintf(buf, bufsize, "\x1b[%dm", code);
+            snprintf(buf, bufsize, "\x1b[%dm", code);
         } else {
             /* Normal colors (30-37 for fg, 40-47 for bg) */
             int code = foreground ? (30 + tc.ansi) : (40 + tc.ansi);
-            pos = snprintf(buf, bufsize, "\x1b[%dm", code);
+            snprintf(buf, bufsize, "\x1b[%dm", code);
         }
     }
 }

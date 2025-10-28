@@ -1,6 +1,6 @@
 # OCCE
 
-A high-performance, extensible terminal text editor written in C11 with Lua scripting capabilities. OCCE combines a minimal, efficient core (~6,500 lines of C) with a powerful plugin system for customization without recompilation.
+A high-performance, extensible terminal text editor written in C11 with Lua scripting capabilities. OCCE features a streamlined single-mode design where all functionality is exposed through a comprehensive Lua API, enabling complete customization without recompilation.
 
 **Version:** 0.1.0
 **License:** MIT
@@ -8,27 +8,29 @@ A high-performance, extensible terminal text editor written in C11 with Lua scri
 
 ## Overview
 
-OCCE is designed for developers who require a fast, keyboard-driven text editor with deep customization capabilities. The architecture prioritizes performance through a native C implementation while providing extensibility through an embedded Lua 5.4 runtime.
+OCCE is designed for developers who value simplicity, extensibility, and performance. Unlike modal editors, OCCE operates in a single insert mode with all commands accessible via keybindings that call Lua functions. The architecture keeps the C core minimal (~6,500 lines) while exposing a rich Lua API for customization.
 
 ### Core Design Principles
 
-1. **Performance-first architecture** - Critical path operations implemented in optimized C
-2. **Minimal resource footprint** - Fast startup, low memory usage
-3. **Plugin-driven features** - High-level functionality implemented as Lua plugins
-4. **Clean separation of concerns** - Modular codebase with well-defined interfaces
-5. **Zero mandatory dependencies** - POSIX + bundled Lua (optional system Lua)
+1. **Single-mode simplicity** - No mode switching; always ready to type
+2. **Lua-first extensibility** - All features exposed through comprehensive Lua API
+3. **Performance-first architecture** - Critical operations in optimized C, features in Lua
+4. **Minimal resource footprint** - Fast startup (<20ms), low memory usage (~2MB base)
+5. **Plugin-driven features** - Core functionality implemented as loadable Lua plugins
+6. **Zero mandatory dependencies** - POSIX + bundled Lua (or system Lua 5.4)
 
 ### Key Capabilities
 
-- **Multi-buffer editing** with independent undo/redo stacks per buffer
-- **Advanced window management** - Horizontal/vertical splits, tab groups, flexible layouts
-- **Pluggable renderer architecture** - Terminal (ANSI) and GPU-accelerated (SDL2+OpenGL) backends
-- **TrueColor theming system** - 24-bit RGB color support with runtime theme switching
+- **Single insert mode** - No modal complexity; straightforward text editing
+- **Lua-driven keybindings** - Bind any key combination to Lua functions at runtime
+- **Multi-buffer editing** - Independent undo/redo stacks, syntax highlighting per buffer
+- **Tab groups** - Visual tab bar with Ctrl+PageUp/Down navigation
+- **Window splits** - Horizontal/vertical splits with focus management
+- **TrueColor theming** - 24-bit RGB themes with runtime switching
 - **Syntax highlighting** - Token-based highlighting for 14+ languages
-- **Lua plugin system** - Full API access to editor internals
-- **Git integration** - Repository status, diffs, branch information (plugin)
-- **Custom keybindings** - Bind any key sequence to Lua functions
-- **Visual selection** - Rectangle and line-based selection with clipboard integration
+- **Git integration** - Status, diffs, branch info (via plugin)
+- **Custom plugins** - Full editor/buffer/window API access from Lua
+- **Visual selection** - Line-based selection with clipboard integration
 
 ## Architecture
 
@@ -240,47 +242,91 @@ OCCE is configured through Lua scripts loaded at startup. Configuration search o
 `~/.config/occe/init.lua`:
 
 ```lua
--- Load safe plugin loader (sandboxed execution)
-local loader = dofile(editor.config_dir .. "/plugins/plugin_loader.lua")
+-- Tab settings
+editor.set_tab_width(4)       -- Number of spaces per tab (default: 4)
+editor.set_use_spaces(true)   -- Use spaces instead of tabs (default: true)
 
--- Load syntax highlighting
+-- Load the safe plugin loader first
+local loader = dofile(editor.config_dir .. "/plugins/core/plugin_loader.lua")
+
+-- Load core plugins (essential key bindings)
 loader.load_plugins({
-    "syntax/c.lua",
+    "core/core.lua"
+})
+
+-- Load syntax highlighting plugins
+loader.load_plugins({
     "syntax/lua.lua",
+    "syntax/c.lua",
     "syntax/python.lua",
     "syntax/rust.lua"
 })
 
--- Load core functionality
+-- Load feature plugins (optional functionality)
 loader.load_plugins({
-    "core.lua",           -- Utility functions
-    "search.lua",         -- Search/replace
-    "git.lua",            -- Git integration
-    "buffer_list.lua"     -- Buffer management
+    "features/search.lua",
+    "features/word_navigation.lua",
+    "features/git.lua",
+    "features/window_commands.lua",
+    "features/buffer_list.lua"
 })
 
+-- Show plugin load summary
+loader.print_summary()
+
 -- Custom keybindings
-function quick_save()
-    buffer.save()
-    editor.message("Saved: " .. buffer.get_filename())
+function quick_save_and_message()
+    editor.save()
+    editor.message("Saved!")
 end
 
-editor.bind_key(string.byte('s'), editor.KMOD.CTRL, "quick_save")
+editor.bind_key(string.byte('s'), editor.KMOD.CTRL, "quick_save_and_message")
 
--- Theme configuration
+-- Theme configuration (if themes plugin is loaded)
 editor.set_theme("monokai")
 ```
 
 ### Configuration API
 
-#### Editor Settings
+#### Editor Operations
 
 ```lua
-editor.message(text)                     -- Display statusbar message
+-- Core operations
+editor.save()                            -- Save current buffer
+editor.open(filename)                    -- Open file in new buffer
 editor.quit()                            -- Exit editor
+editor.undo()                            -- Undo last change
+editor.redo()                            -- Redo last undone change
+editor.copy()                            -- Copy selection to clipboard
+editor.paste()                           -- Paste from clipboard
+
+-- Tab management
+editor.tabnew([filename])                -- Create new tab (optional: open file)
+editor.tabnext()                         -- Switch to next tab
+editor.tabprev()                         -- Switch to previous tab
+editor.tabclose()                        -- Close current tab
+
+-- Window management
+editor.split([filename])                 -- Horizontal split (optional: open file)
+editor.vsplit([filename])                -- Vertical split (optional: open file)
+editor.window_next()                     -- Focus next window
+editor.window_prev()                     -- Focus previous window
+
+-- Settings
+editor.set_tab_width(n)                  -- Set tab width (number of spaces)
+editor.set_use_spaces(bool)              -- Use spaces instead of tabs
+editor.message(text)                     -- Display statusbar message
 editor.load_plugin(path)                 -- Load Lua plugin
-editor.bind_key(key, modifiers, func)    -- Bind key to function name
-editor.set_theme(name)                   -- Switch theme
+
+-- Keybindings
+editor.bind_key(key, modifiers, function_name)
+-- Binds key combination to Lua function (by name)
+-- Example: editor.bind_key(string.byte('s'), editor.KMOD.CTRL, "editor.save")
+
+editor.unbind_key(key, modifiers)
+-- Removes key binding
+
+-- Properties
 editor.config_dir                        -- Path to ~/.config/occe/
 ```
 
@@ -293,9 +339,18 @@ editor.KMOD.ALT     -- Alt key
 editor.KMOD.SHIFT   -- Shift key
 ```
 
-#### Key Codes
+#### Key Constants
 
-Use `string.byte('x')` for ASCII keys, or SDL keycodes for special keys.
+```lua
+-- Special keys (for use with editor.bind_key)
+editor.KEY.CTRL_C, CTRL_D, CTRL_Q, CTRL_R, CTRL_S, CTRL_V, CTRL_W, CTRL_Z
+editor.KEY.CTRL_ARROW_LEFT, CTRL_ARROW_RIGHT, CTRL_ARROW_UP, CTRL_ARROW_DOWN
+editor.KEY.CTRL_PAGE_UP, CTRL_PAGE_DOWN
+editor.KEY.ARROW_LEFT, ARROW_RIGHT, ARROW_UP, ARROW_DOWN
+
+-- ASCII keys: use string.byte('x')
+-- Example: editor.bind_key(string.byte('s'), editor.KMOD.CTRL, "editor.save")
+```
 
 ## Usage
 
@@ -308,51 +363,46 @@ occe file1 file2 file3  # Open multiple files (multi-buffer)
 occe --version          # Display version information
 ```
 
-### Keybindings
+### Tab Bar
 
-#### Navigation
-- `Arrow keys` - Move cursor
-- `Home` / `End` - Line start/end
-- `Ctrl+Home` / `Ctrl+End` - Buffer start/end
-- `Page Up` / `Page Down` - Scroll by screen
+When multiple tabs are open, OCCE displays a visual tab bar at the top of the screen showing all tab names. The active tab is highlighted in blue. The tab bar automatically appears when you have 2 or more tabs and disappears when only one tab remains.
+
+### Default Keybindings
+
+The following keybindings are defined in `plugins/core/core.lua` and loaded by default:
+
+#### File Operations
+- `Ctrl+S` - Save current buffer
+- `Ctrl+Q` - Quit editor
 
 #### Editing
 - `Backspace` - Delete character before cursor
 - `Delete` - Delete character at cursor
 - `Enter` - Insert newline
-- `Tab` - Insert tab/spaces
-
-#### File Operations
-- `Ctrl+S` - Save current buffer
-- `Ctrl+Q` - Quit editor (prompts if unsaved)
-
-#### Clipboard
-- `Ctrl+C` - Copy selection
-- `Ctrl+V` - Paste
-- `Ctrl+X` - Cut selection
+- `Tab` - Insert tab or spaces (configured via `init.lua`)
 
 #### Undo/Redo
 - `Ctrl+Z` - Undo last operation
 - `Ctrl+R` - Redo undone operation
 
-#### Window Management
-- `Ctrl+W` then `h/j/k/l` - Navigate to window (left/down/up/right)
-- `Ctrl+W` then `w` - Cycle to next window
-- `Ctrl+W` then `W` - Cycle to previous window
-- `Ctrl+W` then `s` - Horizontal split
-- `Ctrl+W` then `v` - Vertical split
-- `Ctrl+W` then `o` - Close all other windows
+#### Clipboard
+- `Ctrl+C` - Copy selection
+- `Ctrl+V` - Paste from clipboard
 
-#### Command Mode
-- `:` - Enter command mode (if configured)
-- `:q` / `:quit` - Quit
-- `:w` / `:write` - Save
-- `:wq` - Save and quit
-- `:split [file]` - Horizontal split
-- `:vsplit [file]` - Vertical split
-- `:only` - Close other windows
-- `:buffers` / `:ls` - List buffers
-- `:lua <code>` - Execute Lua code
+#### Tab Navigation
+- `Ctrl+PageDown` - Next tab
+- `Ctrl+PageUp` - Previous tab
+
+#### Window Navigation
+- `Ctrl+W` - Cycle to next window in current tab
+
+#### Cursor Movement
+- `Arrow keys` - Move cursor up/down/left/right
+- `Home` / `End` - Line start/end
+- `Page Up` / `Page Down` - Scroll by screen
+- `Ctrl+Home` / `Ctrl+End` - Buffer start/end
+
+All keybindings are customizable via Lua. See [Configuration](#configuration) for details.
 
 ## Plugin System
 
@@ -368,7 +418,7 @@ Plugins are Lua scripts with access to the editor API. The plugin system support
 
 ### Plugin Structure
 
-`~/.config/occe/plugins/example.lua`:
+`~/.config/occe/plugins/features/example.lua`:
 
 ```lua
 -- Plugin metadata (optional)
@@ -379,14 +429,18 @@ local plugin = {
 }
 
 -- Define functions
-function my_custom_function()
+function show_current_line_info()
     local x, y = buffer.get_cursor()
     local line = buffer.get_line(y)
-    editor.message("Line " .. y .. ": " .. line)
+    local line_count = buffer.get_line_count()
+    editor.message("Line " .. (y + 1) .. "/" .. line_count .. ": " .. #line .. " chars")
 end
 
 -- Register keybindings
-editor.bind_key(string.byte('e'), editor.KMOD.CTRL, "my_custom_function")
+editor.bind_key(string.byte('i'), editor.KMOD.CTRL, "show_current_line_info")
+
+-- Plugin initialization complete
+editor.message("Example Plugin loaded")
 
 -- Export API (optional)
 return plugin
@@ -521,30 +575,42 @@ editor.set_theme("My Theme")
 
 ### Built-in Plugins
 
-OCCE ships with reference plugins:
+OCCE ships with organized plugins in three categories:
 
-| Plugin | Description | Functions |
-|--------|-------------|-----------|
-| `core.lua` | Utility functions | `duplicate_line()`, `delete_line()`, `buffer_info()` |
-| `search.lua` | Search/replace | `search_forward()`, `search_backward()`, `replace_all()` |
-| `word_navigation.lua` | Enhanced navigation | `word_forward()`, `word_backward()`, `word_delete()` |
+#### Core Plugins (`plugins/core/`)
+
+| Plugin | Description |
+|--------|-------------|
+| `core.lua` | Essential key bindings (Ctrl+S, Ctrl+Q, Ctrl+Z, Ctrl+R, Ctrl+C, Ctrl+V, Ctrl+W, Ctrl+PageUp/Down) |
+| `plugin_loader.lua` | Safe plugin loading system with error handling |
+
+#### Feature Plugins (`plugins/features/`)
+
+| Plugin | Description | Key Functions |
+|--------|-------------|---------------|
+| `search.lua` | Search/replace functionality | `search_forward()`, `search_backward()`, `replace_all()` |
+| `word_navigation.lua` | Word-based cursor movement | `word_forward()`, `word_backward()`, `word_delete()` |
 | `git.lua` | Git integration | `git_status()`, `git_diff()`, `git_branch()` |
 | `buffer_list.lua` | Buffer switcher | `show_buffer_list()` (interactive menu) |
-| `window_commands.lua` | Window management | Various split/focus commands |
+| `window_commands.lua` | Advanced window management | Split/focus commands |
 | `layouts.lua` | Layout persistence | `save_layout()`, `load_layout()` |
-| `session_manager.lua` | Session restore | `save_session()`, `restore_session()` |
-| `themes.lua` | Theme definitions | Predefined color schemes |
+| `session_manager.lua` | Session save/restore | `save_session()`, `restore_session()` |
+| `themes.lua` | Theme definitions | Predefined color schemes (monokai, etc.) |
+
+#### Syntax Plugins (`plugins/syntax/`)
+
+Language-specific syntax highlighting: C, Lua, Python, JavaScript, TypeScript, Rust, Go, Java, Ruby, Shell, HTML, CSS, JSON, Markdown
 
 ### Creating Custom Plugins
 
 **Example: Line counter plugin**
 
-`~/.config/occe/plugins/line_counter.lua`:
+`~/.config/occe/plugins/features/line_counter.lua`:
 
 ```lua
 function count_lines_in_selection()
     if not buffer.has_selection() then
-        editor.message("No selection")
+        editor.message("No selection active")
         return
     end
 
@@ -555,17 +621,23 @@ function count_lines_in_selection()
     end
     line_count = line_count + 1  -- Count last line
 
-    editor.message("Selection: " .. line_count .. " lines")
+    local char_count = #selection
+    editor.message(string.format("Selection: %d lines, %d chars", line_count, char_count))
 end
 
 -- Bind to Ctrl+L
 editor.bind_key(string.byte('l'), editor.KMOD.CTRL, "count_lines_in_selection")
+
+editor.message("Line Counter plugin loaded")
 ```
 
 Load in `init.lua`:
 
 ```lua
-editor.load_plugin("line_counter.lua")
+local loader = dofile(editor.config_dir .. "/plugins/core/plugin_loader.lua")
+loader.load_plugins({
+    "features/line_counter.lua"
+})
 ```
 
 ## Performance Characteristics
@@ -611,14 +683,23 @@ occe/
 │   ├── buffer.h           # Buffer interface
 │   └── ...
 ├── plugins/                # Lua plugins
-│   ├── core.lua
-│   ├── search.lua
-│   ├── git.lua
-│   ├── syntax/            # Language definitions
-│   │   ├── c.lua
-│   │   ├── lua.lua
-│   │   └── ...
-│   └── plugin_loader.lua  # Safe plugin loader
+│   ├── core/              # Essential functionality
+│   │   ├── core.lua       # Core key bindings
+│   │   └── plugin_loader.lua  # Safe plugin loader
+│   ├── features/          # Optional features
+│   │   ├── search.lua
+│   │   ├── word_navigation.lua
+│   │   ├── git.lua
+│   │   ├── window_commands.lua
+│   │   ├── buffer_list.lua
+│   │   ├── layouts.lua
+│   │   ├── session_manager.lua
+│   │   └── themes.lua
+│   └── syntax/            # Language definitions
+│       ├── c.lua
+│       ├── lua.lua
+│       ├── python.lua
+│       └── ... (14 languages total)
 ├── build/                  # Build artifacts (generated)
 ├── lua-5.4.7/             # Bundled Lua (optional)
 ├── Makefile               # Build system
@@ -680,20 +761,6 @@ Contributions are welcome! Areas of interest:
 - [ ] Terminal multiplexer integration
 - [ ] Remote editing over SSH
 
-### Contribution Guidelines
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** changes with clear messages
-4. **Ensure** code follows existing style
-5. **Test** thoroughly (manual until test suite exists)
-6. **Submit** a pull request
-
-**Code Review Criteria:**
-- Clean, readable code
-- Minimal performance impact
-- No memory leaks (run Valgrind)
-- Follows project architecture
 
 ## License
 
@@ -702,10 +769,11 @@ MIT License - See [LICENSE](LICENSE) file for details.
 ## Acknowledgments
 
 OCCE draws inspiration from:
-- **Vim/Neovim** - Modal editing paradigm
-- **Kakoune** - Multiple selection concepts
+- **Vim/Neovim** - Extensibility and plugin architecture
+- **Kakoune** - Selection-based editing concepts
 - **kilo** - Minimalist terminal editor architecture
-- **vis** - Structural regular expressions
+- **vis** - Lua integration patterns
+- **Emacs** - Single-mode editing with rich extensibility
 
 Built with:
 - **Lua 5.4** - Embedded scripting engine

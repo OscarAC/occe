@@ -77,6 +77,7 @@ RendererConfig renderer_detect_capabilities(void) {
 /* ========== Terminal Renderer Implementation ========== */
 
 static int terminal_renderer_init(Renderer *self) {
+    (void)self;  /* Unused parameter */
     /* Terminal is already initialized */
     return 0;
 }

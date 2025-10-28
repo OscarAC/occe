@@ -75,8 +75,11 @@ int keymap_execute(KeyMap *map, Editor *ed, int key, int modifiers) {
     KeyBinding *kb = map->bindings;
     while (kb) {
         if (kb->key == key && kb->modifiers == modifiers) {
-            /* Execute the Lua function */
-            if (lua_bridge_call(ed, kb->lua_function) == 0) {
+            /* Execute the Lua function - append () to make it a function call */
+            char code[512];
+            snprintf(code, sizeof(code), "%s()", kb->lua_function);
+
+            if (lua_bridge_exec(ed, code) == 0) {
                 return 0; /* Success */
             }
             return -1; /* Execution failed */

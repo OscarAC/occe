@@ -33,9 +33,6 @@ struct Editor {
     bool running;
     void *lua_state;
 
-    /* Window command state */
-    bool window_command_mode;  /* True after Ctrl+W pressed */
-
     /* Status message */
     char status_msg[256];
     size_t status_len;
@@ -45,6 +42,10 @@ struct Editor {
 
     /* Display options */
     bool show_line_numbers;
+
+    /* Tab settings */
+    int tab_width;       /* Number of spaces per tab */
+    bool use_spaces;     /* Use spaces instead of tabs */
 
     /* Clipboard */
     char *clipboard;
@@ -59,9 +60,6 @@ Editor *editor_create(void);
 void editor_destroy(Editor *ed);
 int editor_run(Editor *ed);
 void editor_quit(Editor *ed);
-
-/* Command functions */
-void editor_execute_command(Editor *ed, const char *cmd);
 void editor_set_status(Editor *ed, const char *msg);
 
 #endif /* OCCE_H */

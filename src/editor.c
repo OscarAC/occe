@@ -57,8 +57,6 @@ Editor *editor_create(void) {
     ed->running = true;
     ed->lua_state = NULL;
 
-    /* Initialize window command state */
-    ed->window_command_mode = false;
     ed->status_len = 0;
     ed->status_msg[0] = '\0';
 
@@ -72,6 +70,10 @@ Editor *editor_create(void) {
 
     /* Initialize display options */
     ed->show_line_numbers = true;  /* Line numbers on by default */
+
+    /* Initialize tab settings */
+    ed->tab_width = 4;       /* Default to 4 spaces */
+    ed->use_spaces = true;   /* Default to spaces instead of tabs */
 
     /* Initialize clipboard */
     ed->clipboard = NULL;
@@ -160,288 +162,28 @@ void editor_set_status(Editor *ed, const char *msg) {
     ed->status_len = len;
 }
 
-/* Helper function to add a buffer to the editor */
-static void editor_add_buffer(Editor *ed, Buffer *buf) {
-    if (!buf) return;
+/* Helper function to check if tab bar should be shown */
+static bool editor_should_show_tabbar(Editor *ed) {
+    if (!ed->tab_groups) return false;
 
-    Buffer **new_buffers = realloc(ed->buffers, sizeof(Buffer *) * (ed->buffer_count + 1));
-    if (!new_buffers) return;
+    /* Count tabs */
+    int tab_count = 0;
+    TabGroup *tab = ed->tab_groups;
+    while (tab) {
+        tab_count++;
+        tab = tab->next;
+    }
 
-    ed->buffers = new_buffers;
-    ed->buffers[ed->buffer_count++] = buf;
+    return tab_count > 1;
 }
 
-/* Helper function to split a window */
-static void editor_split_window(Editor *ed, WindowType split_type, Buffer *new_buffer) {
-    if (!ed->active_window || !new_buffer) return;
-
-    Window *current = ed->active_window;
-    if (current->type != WINDOW_LEAF) return;  /* Can only split leaf windows */
-
-    /* Save current window properties */
-    int x = current->x;
-    int y = current->y;
-    int w = current->width;
-    int h = current->height;
-    Buffer *old_buffer = current->content.buffer;
-
-    /* Create two new leaf windows */
-    Window *win1 = window_create_leaf(old_buffer, 0, 0, 0, 0);
-    Window *win2 = window_create_leaf(new_buffer, 0, 0, 0, 0);
-
-    if (!win1 || !win2) {
-        if (win1) free(win1);
-        if (win2) free(win2);
-        return;
-    }
-
-    /* Convert current window to a split */
-    current->type = split_type;
-    current->content.buffer = NULL;
-    current->left = win1;
-    current->right = win2;
-    current->split_ratio = 0.5f;
-
-    /* Resize to distribute space */
-    window_resize(current, x, y, w, h);
-
-    /* Set active window to the new window */
-    ed->active_window = win2;
-}
-
-void editor_execute_command(Editor *ed, const char *cmd) {
-    if (!cmd || !cmd[0]) return;
-
-    /* Handle built-in commands */
-    if (strcmp(cmd, "q") == 0 || strcmp(cmd, "quit") == 0) {
-        editor_quit(ed);
-        return;
-    }
-
-    if (strcmp(cmd, "w") == 0 || strcmp(cmd, "write") == 0) {
-        if (ed->active_window && ed->active_window->content.buffer) {
-            if (buffer_save(ed->active_window->content.buffer) == 0) {
-                editor_set_status(ed, "File saved");
-            } else {
-                editor_set_status(ed, "Error saving file");
-            }
-        }
-        return;
-    }
-
-    if (strcmp(cmd, "wq") == 0) {
-        if (ed->active_window && ed->active_window->content.buffer) {
-            buffer_save(ed->active_window->content.buffer);
-        }
-        editor_quit(ed);
-        return;
-    }
-
-    /* Handle set commands */
-    if (strcmp(cmd, "set number") == 0 || strcmp(cmd, "set nu") == 0) {
-        ed->show_line_numbers = true;
-        editor_set_status(ed, "Line numbers enabled");
-        return;
-    }
-
-    if (strcmp(cmd, "set nonumber") == 0 || strcmp(cmd, "set nonu") == 0) {
-        ed->show_line_numbers = false;
-        editor_set_status(ed, "Line numbers disabled");
-        return;
-    }
-
-    /* Handle buffer list */
-    if (strcmp(cmd, "ls") == 0 || strcmp(cmd, "buffers") == 0) {
-        char msg[512];
-        int offset = 0;
-        offset += snprintf(msg + offset, sizeof(msg) - offset, "Buffers: ");
-        for (size_t i = 0; i < ed->buffer_count && offset < (int)sizeof(msg) - 50; i++) {
-            const char *name = ed->buffers[i]->filename ? ed->buffers[i]->filename : "[No Name]";
-            const char *modified = ed->buffers[i]->modified ? "[+]" : "";
-            const char *active = (ed->active_window && ed->active_window->content.buffer == ed->buffers[i]) ? "*" : " ";
-            offset += snprintf(msg + offset, sizeof(msg) - offset, "%s%zu:%s%s ",
-                             active, i + 1, name, modified);
-        }
-        editor_set_status(ed, msg);
-        return;
-    }
-
-    /* Handle window management */
-    if (strcmp(cmd, "only") == 0) {
-        if (ed->active_window && ed->root_window) {
-            Window *new_root = window_only(ed->root_window, ed->active_window);
-            if (new_root) {
-                ed->root_window = new_root;
-                ed->active_window = new_root;
-                /* Resize to fill screen */
-                window_resize(ed->root_window, 0, 0, ed->term->cols, ed->term->rows - 1);
-                editor_set_status(ed, "Closed all other windows");
-            }
-        }
-        return;
-    }
-
-    /* Handle split commands */
-    if (strncmp(cmd, "split", 5) == 0 || strncmp(cmd, "sp", 2) == 0) {
-        const char *filename = NULL;
-
-        /* Check for filename argument */
-        if (strncmp(cmd, "split ", 6) == 0) {
-            filename = cmd + 6;
-            while (*filename == ' ') filename++;  /* Skip spaces */
-            if (*filename == '\0') filename = NULL;
-        } else if (strncmp(cmd, "sp ", 3) == 0) {
-            filename = cmd + 3;
-            while (*filename == ' ') filename++;
-            if (*filename == '\0') filename = NULL;
-        }
-
-        /* Create new buffer */
-        Buffer *new_buf = buffer_create();
-        if (new_buf) {
-            if (filename) {
-                /* Try to open file */
-                if (buffer_open(new_buf, filename) == -1) {
-                    /* File doesn't exist, create new with filename */
-                    new_buf->filename = strdup(filename);
-                    buffer_append_row(new_buf, "", 0);
-                }
-            } else {
-                /* No filename - create empty buffer WITHOUT filename to prevent data loss */
-                /* Copy content from current buffer but don't share the filename */
-                if (ed->active_window && ed->active_window->content.buffer) {
-                    Buffer *src = ed->active_window->content.buffer;
-                    for (size_t i = 0; i < src->num_rows; i++) {
-                        buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
-                    }
-                } else {
-                    buffer_append_row(new_buf, "", 0);
-                }
-                /* Leave new_buf->filename as NULL - user must save with new name */
-            }
-
-            editor_add_buffer(ed, new_buf);
-            editor_split_window(ed, WINDOW_SPLIT_H, new_buf);
-            editor_set_status(ed, "Window split horizontally");
-        }
-        return;
-    }
-
-    if (strncmp(cmd, "vsplit", 6) == 0 || strncmp(cmd, "vsp", 3) == 0) {
-        const char *filename = NULL;
-
-        /* Check for filename argument */
-        if (strncmp(cmd, "vsplit ", 7) == 0) {
-            filename = cmd + 7;
-            while (*filename == ' ') filename++;
-            if (*filename == '\0') filename = NULL;
-        } else if (strncmp(cmd, "vsp ", 4) == 0) {
-            filename = cmd + 4;
-            while (*filename == ' ') filename++;
-            if (*filename == '\0') filename = NULL;
-        }
-
-        /* Create new buffer */
-        Buffer *new_buf = buffer_create();
-        if (new_buf) {
-            if (filename) {
-                /* Try to open file */
-                if (buffer_open(new_buf, filename) == -1) {
-                    /* File doesn't exist, create new with filename */
-                    new_buf->filename = strdup(filename);
-                    buffer_append_row(new_buf, "", 0);
-                }
-            } else {
-                /* No filename - create empty buffer WITHOUT filename to prevent data loss */
-                /* Copy content from current buffer but don't share the filename */
-                if (ed->active_window && ed->active_window->content.buffer) {
-                    Buffer *src = ed->active_window->content.buffer;
-                    for (size_t i = 0; i < src->num_rows; i++) {
-                        buffer_append_row(new_buf, src->rows[i].data, src->rows[i].size);
-                    }
-                } else {
-                    buffer_append_row(new_buf, "", 0);
-                }
-                /* Leave new_buf->filename as NULL - user must save with new name */
-            }
-
-            editor_add_buffer(ed, new_buf);
-            editor_split_window(ed, WINDOW_SPLIT_V, new_buf);
-            editor_set_status(ed, "Window split vertically");
-        }
-        return;
-    }
-
-    /* Try to execute as Lua code */
-    if (lua_bridge_exec(ed, cmd) == 0) {
-        editor_set_status(ed, "Command executed");
-    } else {
-        char msg[256];
-        snprintf(msg, sizeof(msg), "Unknown command: %s", cmd);
-        editor_set_status(ed, msg);
-    }
+/* Helper function to get window layout dimensions */
+static void editor_get_window_area(Editor *ed, int *y, int *height) {
+    *y = editor_should_show_tabbar(ed) ? 1 : 0;  /* Start at row 1 if tab bar shown */
+    *height = ed->term->rows - 1 - *y;  /* Leave room for status line and tab bar */
 }
 
 static void editor_process_keypress(Editor *ed, int key) {
-
-    /* Handle window command mode */
-    if (ed->window_command_mode) {
-        ed->window_command_mode = false;  /* Reset after handling */
-
-        /* Window navigation */
-        switch (key) {
-            case 'h':
-            case KEY_ARROW_LEFT:
-            case 'j':
-            case KEY_ARROW_DOWN:
-            case 'k':
-            case KEY_ARROW_UP:
-            case 'l':
-            case KEY_ARROW_RIGHT: {
-                /* Navigate to next window (simplified - just cycle through) */
-                Window *next = window_get_next_leaf(ed->root_window, ed->active_window);
-                if (next && next != ed->active_window) {
-                    ed->active_window = next;
-                    editor_set_status(ed, "Switched window");
-                }
-                break;
-            }
-
-            case 'w':
-                /* Ctrl+W w - cycle to next window */
-                {
-                    Window *next = window_get_next_leaf(ed->root_window, ed->active_window);
-                    if (next && next != ed->active_window) {
-                        ed->active_window = next;
-                        editor_set_status(ed, "Switched to next window");
-                    }
-                }
-                break;
-
-            case 'W':
-                /* Ctrl+W W - cycle to previous window */
-                {
-                    Window *prev = window_get_prev_leaf(ed->root_window, ed->active_window);
-                    if (prev && prev != ed->active_window) {
-                        ed->active_window = prev;
-                        editor_set_status(ed, "Switched to previous window");
-                    }
-                }
-                break;
-
-            default:
-                /* Unknown window command */
-                break;
-        }
-        return;
-    }
-
-    /* Check for Ctrl+W to enter window command mode */
-    if (key == KEY_CTRL_W) {
-        ed->window_command_mode = true;
-        editor_set_status(ed, "-- WINDOW --");
-        return;
-    }
 
     /* Handle mouse events */
     if (key == KEY_MOUSE) {
@@ -521,16 +263,6 @@ static void editor_process_keypress(Editor *ed, int key) {
     Buffer *buf = ed->active_window->content.buffer;
 
     switch (key) {
-        case KEY_CTRL_Q:
-            editor_quit(ed);
-            break;
-
-        case KEY_CTRL_S:
-            if (buf->filename) {
-                buffer_save(buf);
-            }
-            break;
-
         case KEY_ARROW_LEFT:
             if (buf->cursor_x > 0) {
                 buf->cursor_x--;
@@ -612,58 +344,56 @@ static void editor_process_keypress(Editor *ed, int key) {
             break;
 
         case KEY_DEL:
-            /* Move right then delete */
+            /* Delete character to the right, or join with next line if at end */
             if (buf->cursor_y < (int)buf->num_rows) {
                 BufferRow *row = &buf->rows[buf->cursor_y];
                 if (buf->cursor_x < (int)row->size) {
+                    /* Delete character to the right */
                     buf->cursor_x++;
                     buffer_delete_char(buf);
+                } else if (buf->cursor_y < (int)buf->num_rows - 1) {
+                    /* At end of line - join with next line */
+                    BufferRow *next_row = &buf->rows[buf->cursor_y + 1];
+
+                    /* Ensure current row has space */
+                    while (row->capacity < row->size + next_row->size + 1) {
+                        row->capacity *= 2;
+                        char *new_data = realloc(row->data, row->capacity);
+                        if (!new_data) break;
+                        row->data = new_data;
+                    }
+
+                    /* Append next row to current row */
+                    memcpy(&row->data[row->size], next_row->data, next_row->size);
+                    row->size += next_row->size;
+                    row->data[row->size] = '\0';
+
+                    /* Delete next row */
+                    if (next_row->data) {
+                        free(next_row->data);
+                        next_row->data = NULL;
+                    }
+
+                    /* Shift rows up */
+                    memmove(&buf->rows[buf->cursor_y + 1], &buf->rows[buf->cursor_y + 2],
+                            sizeof(BufferRow) * (buf->num_rows - buf->cursor_y - 2));
+
+                    buf->num_rows--;
+                    buf->modified = true;
                 }
             }
             break;
 
-        case KEY_CTRL_Z:
-            /* Undo */
-            if (buf->undo_stack) {
-                if (undo_apply(buf, buf->undo_stack) == 0) {
-                    editor_set_status(ed, "Undo");
-                } else {
-                    editor_set_status(ed, "Nothing to undo");
+        case '\t':
+            /* Tab key - insert tab or spaces based on configuration */
+            if (ed->use_spaces) {
+                /* Insert spaces */
+                for (int i = 0; i < ed->tab_width; i++) {
+                    buffer_insert_char(buf, ' ');
                 }
-            }
-            break;
-
-        case KEY_CTRL_R:
-            /* Redo */
-            if (buf->undo_stack) {
-                if (redo_apply(buf, buf->undo_stack) == 0) {
-                    editor_set_status(ed, "Redo");
-                } else {
-                    editor_set_status(ed, "Nothing to redo");
-                }
-            }
-            break;
-
-        case KEY_CTRL_C:
-            /* Copy selection to clipboard */
-            if (buf->has_selection) {
-                size_t len;
-                char *text = buffer_get_selected_text(buf, &len);
-                if (text) {
-                    if (ed->clipboard) free(ed->clipboard);
-                    ed->clipboard = text;
-                    ed->clipboard_len = len;
-                    editor_set_status(ed, "Copied");
-                    buf->has_selection = false;
-                }
-            }
-            break;
-
-        case KEY_CTRL_V:
-            /* Paste from clipboard */
-            if (ed->clipboard && ed->clipboard_len > 0) {
-                buffer_paste_text(buf, ed->clipboard, ed->clipboard_len);
-                editor_set_status(ed, "Pasted");
+            } else {
+                /* Insert actual tab character */
+                buffer_insert_char(buf, '\t');
             }
             break;
 
@@ -676,6 +406,78 @@ static void editor_process_keypress(Editor *ed, int key) {
     }
 }
 
+/* Helper function to render the tab bar at the top of the screen */
+static void editor_render_tabbar(Editor *ed) {
+    if (!editor_should_show_tabbar(ed)) return;
+
+    /* Move to top of screen */
+    terminal_move_cursor(ed->term, 0, 0);
+
+    /* Set background color for tab bar */
+    terminal_write_str(ed->term, "\x1b[48;5;236m");  /* Dark gray background */
+
+    int col = 0;
+    int tab_index = 0;
+    TabGroup *tab = ed->tab_groups;
+
+    while (tab && col < ed->term->cols) {
+        tab_index++;
+
+        /* Determine if this is the active tab */
+        bool is_active = (tab == ed->active_tab);
+
+        /* Set colors for tab */
+        if (is_active) {
+            terminal_write_str(ed->term, "\x1b[1;38;5;15;48;5;24m");  /* Bold white on blue */
+        } else {
+            terminal_write_str(ed->term, "\x1b[0;38;5;250;48;5;236m"); /* Light gray on dark gray */
+        }
+
+        /* Format tab label */
+        char tab_label[64];
+        int label_len;
+
+        /* Get a short name for the tab */
+        const char *display_name = tab->name;
+        if (display_name && strlen(display_name) > 20) {
+            /* Truncate long names */
+            snprintf(tab_label, sizeof(tab_label), " %d:%.17s... ", tab_index, display_name);
+        } else if (display_name) {
+            snprintf(tab_label, sizeof(tab_label), " %d:%s ", tab_index, display_name);
+        } else {
+            snprintf(tab_label, sizeof(tab_label), " %d ", tab_index);
+        }
+
+        label_len = strlen(tab_label);
+
+        /* Don't render if it would overflow */
+        if (col + label_len > ed->term->cols) break;
+
+        /* Write the tab label */
+        terminal_write(ed->term, tab_label, label_len);
+        col += label_len;
+
+        /* Add separator between tabs (not after active tab) */
+        if (tab->next && !is_active && col < ed->term->cols) {
+            terminal_write_str(ed->term, "\x1b[0;38;5;240;48;5;236m"); /* Dim separator */
+            terminal_write_str(ed->term, "│");
+            col++;
+        }
+
+        tab = tab->next;
+    }
+
+    /* Fill rest of line with background color */
+    terminal_write_str(ed->term, "\x1b[0;48;5;236m");  /* Dark gray background */
+    while (col < ed->term->cols) {
+        terminal_write_str(ed->term, " ");
+        col++;
+    }
+
+    /* Reset colors */
+    terminal_write_str(ed->term, "\x1b[0m");
+}
+
 static void editor_refresh_screen(Editor *ed) {
     terminal_clear(ed->term);
 
@@ -686,12 +488,15 @@ static void editor_refresh_screen(Editor *ed) {
     terminal_write_str(ed->term, "\x1b[2J");
     terminal_move_cursor(ed->term, 0, 0);
 
+    /* Render tab bar at top if we have multiple tabs */
+    editor_render_tabbar(ed);
+
     /* Render windows */
     if (ed->root_window) {
         window_render(ed->root_window, ed->term, ed, ed->show_line_numbers);
     }
 
-    /* Render status message at bottom */
+    /* Render status line at bottom */
     terminal_move_cursor(ed->term, ed->term->rows - 1, 0);
     terminal_write_str(ed->term, "\x1b[K"); /* Clear line */
 
@@ -702,7 +507,6 @@ static void editor_refresh_screen(Editor *ed) {
 
     /* Position cursor in buffer */
     if (ed->active_window && ed->active_window->content.buffer) {
-        /* Cursor in buffer */
         Buffer *buf = ed->active_window->content.buffer;
         Window *win = ed->active_window;
 
@@ -753,8 +557,10 @@ int editor_run(Editor *ed) {
         ed->buffers[0] = buf;
         ed->buffer_count = 1;
 
-        /* Create window for buffer (leave room for command line) */
-        ed->root_window = window_create_leaf(buf, 0, 0, ed->term->cols, ed->term->rows - 1);
+        /* Create window for buffer (leave room for command line and tab bar) */
+        int win_y, win_height;
+        editor_get_window_area(ed, &win_y, &win_height);
+        ed->root_window = window_create_leaf(buf, 0, win_y, ed->term->cols, win_height);
         ed->active_window = ed->root_window;
     }
 
@@ -767,10 +573,12 @@ int editor_run(Editor *ed) {
             editor_process_keypress(ed, key);
         }
 
-        /* Update window size (leave room for command line) */
+        /* Update window size (leave room for command line and tab bar) */
         terminal_get_window_size(ed->term);
         if (ed->root_window) {
-            window_resize(ed->root_window, 0, 0, ed->term->cols, ed->term->rows - 1);
+            int win_y, win_height;
+            editor_get_window_area(ed, &win_y, &win_height);
+            window_resize(ed->root_window, 0, win_y, ed->term->cols, win_height);
         }
     }
 
