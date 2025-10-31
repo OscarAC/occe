@@ -16,6 +16,7 @@ plugins/
 │   ├── layouts.lua       # Window layout management
 │   ├── search.lua        # Search functionality
 │   ├── session_manager.lua # Session persistence
+│   ├── shift_selection.lua # Shift+Arrow text selection
 │   ├── themes.lua        # Theme management
 │   ├── window_commands.lua # Window manipulation
 │   └── word_navigation.lua # Word-based navigation
@@ -39,6 +40,7 @@ Optional plugins that can be enabled/disabled in `init.lua`:
 
 - **search.lua**: Buffer search functionality
 - **word_navigation.lua**: Word-based cursor movement
+- **shift_selection.lua**: Text selection using Shift+Arrow keys
 - **git.lua**: Git status integration
 - **window_commands.lua**: Advanced window management
 - **buffer_list.lua**: Buffer list and switching
@@ -112,6 +114,11 @@ local success = buffer.save()
 -- Search and replace
 local result = buffer.search(query)
 local count = buffer.replace(search, replace, all)
+
+-- Selection operations
+buffer.start_selection()        -- Start selection at current cursor
+buffer.clear_selection()        -- Clear current selection
+local has_sel = buffer.has_selection()  -- Check if selection exists
 ```
 
 ### Key Constants
@@ -119,6 +126,7 @@ local count = buffer.replace(search, replace, all)
 ```lua
 editor.KEY.CTRL_C, CTRL_D, CTRL_Q, CTRL_R, CTRL_S, CTRL_V, CTRL_W, CTRL_Z
 editor.KEY.CTRL_ARROW_LEFT, CTRL_ARROW_RIGHT, CTRL_ARROW_UP, CTRL_ARROW_DOWN
+editor.KEY.SHIFT_ARROW_LEFT, SHIFT_ARROW_RIGHT, SHIFT_ARROW_UP, SHIFT_ARROW_DOWN
 editor.KEY.CTRL_PAGE_UP, CTRL_PAGE_DOWN
 editor.KEY.ARROW_LEFT, ARROW_RIGHT, ARROW_UP, ARROW_DOWN
 

@@ -35,6 +35,7 @@ loader.load_plugins({
 loader.load_plugins({
     "features/search.lua",
     "features/word_navigation.lua",
+    "features/shift_selection.lua",
     "features/git.lua",
     "features/window_commands.lua",
     "features/buffer_list.lua",

@@ -249,6 +249,44 @@ static int l_buffer_replace(lua_State *L) {
     return 1;
 }
 
+/* Lua API: buffer.start_selection() - Start selection at current cursor position */
+static int l_buffer_start_selection(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return luaL_error(L, "No active buffer");
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    buf->has_selection = true;
+    buf->select_start_x = buf->cursor_x;
+    buf->select_start_y = buf->cursor_y;
+    return 0;
+}
+
+/* Lua API: buffer.clear_selection() - Clear selection */
+static int l_buffer_clear_selection(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return luaL_error(L, "No active buffer");
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    buf->has_selection = false;
+    return 0;
+}
+
+/* Lua API: buffer.has_selection() -> bool */
+static int l_buffer_has_selection(lua_State *L) {
+    Editor *ed = get_editor(L);
+    if (!ed || !ed->active_window || !ed->active_window->content.buffer) {
+        return luaL_error(L, "No active buffer");
+    }
+
+    Buffer *buf = ed->active_window->content.buffer;
+    lua_pushboolean(L, buf->has_selection);
+    return 1;
+}
+
 /* Lua API: editor.quit() */
 static int l_editor_quit(lua_State *L) {
     Editor *ed = get_editor(L);
@@ -977,6 +1015,15 @@ static void register_buffer_api(lua_State *L) {
     lua_pushcfunction(L, l_buffer_replace);
     lua_setfield(L, -2, "replace");
 
+    lua_pushcfunction(L, l_buffer_start_selection);
+    lua_setfield(L, -2, "start_selection");
+
+    lua_pushcfunction(L, l_buffer_clear_selection);
+    lua_setfield(L, -2, "clear_selection");
+
+    lua_pushcfunction(L, l_buffer_has_selection);
+    lua_setfield(L, -2, "has_selection");
+
     lua_setglobal(L, "buffer");
 }
 
@@ -1089,6 +1136,16 @@ static void register_editor_api(lua_State *L) {
     lua_setfield(L, -2, "CTRL_ARROW_UP");
     lua_pushinteger(L, KEY_CTRL_ARROW_DOWN);
     lua_setfield(L, -2, "CTRL_ARROW_DOWN");
+
+    /* Arrow keys with Shift */
+    lua_pushinteger(L, KEY_SHIFT_ARROW_LEFT);
+    lua_setfield(L, -2, "SHIFT_ARROW_LEFT");
+    lua_pushinteger(L, KEY_SHIFT_ARROW_RIGHT);
+    lua_setfield(L, -2, "SHIFT_ARROW_RIGHT");
+    lua_pushinteger(L, KEY_SHIFT_ARROW_UP);
+    lua_setfield(L, -2, "SHIFT_ARROW_UP");
+    lua_pushinteger(L, KEY_SHIFT_ARROW_DOWN);
+    lua_setfield(L, -2, "SHIFT_ARROW_DOWN");
 
     /* Page Up/Down with Ctrl */
     lua_pushinteger(L, KEY_CTRL_PAGE_UP);

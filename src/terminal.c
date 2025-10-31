@@ -208,6 +208,17 @@ int terminal_read_key(void) {
                             case 'D':
                                 return KEY_CTRL_ARROW_LEFT;
                         }
+                    } else if (mod == '2') {  /* Shift modifier */
+                        switch (dir) {
+                            case 'A':
+                                return KEY_SHIFT_ARROW_UP;
+                            case 'B':
+                                return KEY_SHIFT_ARROW_DOWN;
+                            case 'C':
+                                return KEY_SHIFT_ARROW_RIGHT;
+                            case 'D':
+                                return KEY_SHIFT_ARROW_LEFT;
+                        }
                     }
                 }
             } else {

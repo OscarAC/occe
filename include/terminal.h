@@ -45,6 +45,10 @@ typedef enum {
     KEY_CTRL_ARROW_DOWN,
     KEY_CTRL_PAGE_UP,
     KEY_CTRL_PAGE_DOWN,
+    KEY_SHIFT_ARROW_LEFT,
+    KEY_SHIFT_ARROW_RIGHT,
+    KEY_SHIFT_ARROW_UP,
+    KEY_SHIFT_ARROW_DOWN,
 } KeyCode;
 
 /* Mouse event structure */
